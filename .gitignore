@@ -1,3 +1,6 @@
 Data
 *.pkl
 temp*
+model*
+*.npy
+.idea

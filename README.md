@@ -17,7 +17,7 @@ options:
 **Scryfall Bulk Data Integration:**
   * Query and update stored Scryfall bulk data for access to every Magic: The Gathering card.
   
-***Vector Embeddings for Semantic Search and Customizable Embedding Models:** 
+**Vector Embeddings for Semantic Search and Customizable Embedding Models:** 
   * Generate numerical vector embeddings from card oracle text, to allow the user to quickly search for similar cards based on the one provided.
   * IMPORTANT NOTE! You can use any sentence transformer model for this but keep in mind this will greatly impact card similarity. (creating a specific model and tuning it for the magic the gathering language will be an on going project)
 

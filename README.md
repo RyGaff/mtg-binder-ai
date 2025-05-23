@@ -1,4 +1,5 @@
 # Usage
+```
 python3 cli.py -s "Urza, Lord High Artificer"
 
 usage: cli.py [-h] [-u] [-e] [-s SEARCH] [-m MODEL]
@@ -11,7 +12,7 @@ options:
   -m MODEL, --model MODEL
                         Model to use for vector embeddings. NOTE: This it is software is highly model dependent
                         the current default model is paraphrase-MiniLM-L6-v
-
+```
 # Features:
 Scryfall Bulk Data Integration: 
   Query and update stored Scryfall bulk data for access to every Magic: The Gathering card.

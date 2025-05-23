@@ -15,27 +15,26 @@ options:
 ```
 # Features:
 **Scryfall Bulk Data Integration:**
-  Query and update stored Scryfall bulk data for access to every Magic: The Gathering card.
+  * Query and update stored Scryfall bulk data for access to every Magic: The Gathering card.
   
 ***Vector Embeddings for Semantic Search and Customizable Embedding Models:** 
-  Generate numerical vector embeddings from card oracle text, to allow the user to quickly search for similar cards based on the one provided.
-  IMPORTANT NOTE! You can use any sentence transformer model for this but keep in mind this will greatly impact card similarity.
-      (creating a specific model and tuning it for the magic the gathering language will be an on going project)
+  * Generate numerical vector embeddings from card oracle text, to allow the user to quickly search for similar cards based on the one provided.
+  * IMPORTANT NOTE! You can use any sentence transformer model for this but keep in mind this will greatly impact card similarity. (creating a specific model and tuning it for the magic the gathering language will be an on going project)
 
 # Todo:
 **Card Analysis tool:**
-  *Search for "synergistic" cards
-  *Parameter to use regular languge to search instead of card name 
-  *Custom SentenceTransformer model specialized in the "language" of mtg
+  * Search for "synergistic" cards
+  * Parameter to use regular languge to search instead of card name 
+  * Custom SentenceTransformer model specialized in the "language" of mtg
 
 **Collection Manager:**
-  *Manage your collection from one place.
-  *Easily sort through bulk.
-  *Import and export decks to multiple sites.
-  *Check value of cards. 
-  *Create decks.
-  *Goldfish!?
-  *Integration with analysis tool to find sneaky cards that go well with your deck. 
+  * Manage your collection from one place.
+  * Easily sort through bulk.
+  * Import and export decks to multiple sites.
+  * Check value of cards. 
+  * Create decks.
+  * Goldfish!?
+  * Integration with analysis tool to find sneaky cards that go well with your deck. 
   
 **Card Scanner:**
-  *Scan physical cards to integrate integrate into personal collection or just to find some cool stats!
+  * Scan physical cards to integrate integrate into personal collection or just to find some cool stats!

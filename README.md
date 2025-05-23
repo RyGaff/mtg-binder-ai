@@ -24,18 +24,18 @@ options:
 
 # Todo:
 **Card Analysis tool:**
-  Search for "synergistic" cards
-  Parameter to use regular languge to search instead of card name 
-  Custom SentenceTransformer model specialized in the "language" of mtg
+  *Search for "synergistic" cards
+  *Parameter to use regular languge to search instead of card name 
+  *Custom SentenceTransformer model specialized in the "language" of mtg
 
 **Collection Manager:**
-  Manage your collection from one place.
-  Easily sort through bulk.
-  Import and export decks to multiple sites.
-  Check value of cards. 
-  Create decks.
-  Goldfish!?
-  Integration with analysis tool to find sneaky cards that go well with your deck. 
+  *Manage your collection from one place.
+  *Easily sort through bulk.
+  *Import and export decks to multiple sites.
+  *Check value of cards. 
+  *Create decks.
+  *Goldfish!?
+  *Integration with analysis tool to find sneaky cards that go well with your deck. 
   
 **Card Scanner:**
-  Scan physical cards to integrate integrate into personal collection or just to find some cool stats!
+  *Scan physical cards to integrate integrate into personal collection or just to find some cool stats!

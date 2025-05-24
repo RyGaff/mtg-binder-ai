@@ -1,17 +1,23 @@
 # Usage
 ```
-python3 cli.py -s "Urza, Lord High Artificer"
+usage: cli.py [-h] [-u] [-e] [-q QUERY] [-c CONTAINS] [-k NUMRET] [-m MODEL] [-s SCAN]
 
-usage: cli.py [-h] [-u] [-e] [-s SEARCH] [-m MODEL]
+Cli tool to manage and search Magic: the Gathering cards
+
 options:
   -h, --help            show this help message and exit
   -u, --update          Update the scryfall bulk data
   -e, --embeddings      Redo the vector embeddings
-  -s SEARCH, --search SEARCH
+  -q QUERY, --query QUERY
                         Search through similar cards to the given card name
+  -c CONTAINS, --contains CONTAINS
+                        Ensure the similar cards contain the given string
+  -k NUMRET, --numRet NUMRET
+                        Adjust the number of cards to filter
   -m MODEL, --model MODEL
-                        Model to use for vector embeddings. NOTE: This it is software is highly model dependent
-                        the current default model is paraphrase-MiniLM-L6-v
+                        Model to use for vector embeddings. NOTE: This it is software is highly model
+                        dependent
+  -s SCAN, --scan SCAN  Scan card
 ```
 # Features:
 **Scryfall Bulk Data Integration:**

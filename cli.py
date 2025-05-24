@@ -5,7 +5,9 @@ import json
 import time
 import os
 import re
+import sys
 from helpers import get_embeddings, perform_search
+from cardReader import scan_card
 
 saved_embeddings = "Embedded_Magic_cards.pkl"
 
@@ -52,14 +54,17 @@ if __name__ == "__main__":
 
    parser.add_argument('-u', '--update', action='store_true', help='Update the scryfall bulk data')
    parser.add_argument('-e', '--embeddings', action='store_true', help='Redo the vector embeddings')
-   parser.add_argument('-s', '--search', type=str, help='Search through similar cards to the given card name')
+   parser.add_argument('-q', '--query', type=str, help='Search through similar cards to the given card name')
+   parser.add_argument('-c', '--contains', type=str, help='Ensure the similar cards contain the given string', default="")
+   parser.add_argument('-k', '--numRet', type=str, help='Adjust the number of cards to filter', default=10)
    parser.add_argument('-m', '--model', type=str, help='Model to use for vector embeddings. NOTE: This it is software is highly model dependent', default="paraphrase-MiniLM-L6-v2")
+   parser.add_argument('-s', '--scan', type=str, help='Scan card')
    args = parser.parse_args()
-   if args.search is None and args.update is False and args.embeddings is False:
-      parser.print_help()
-      exit()
 
    print(args)
+
+   #Query capitalization
+   #Drop down in the future
 
    update_embeddings = args.embeddings
    if args.update or os.path.exists('Data/oracle-cards-.json') is False:
@@ -68,7 +73,7 @@ if __name__ == "__main__":
       get_scryfall_bulk_data()
       update_embeddings = True
 
-   if args.search:
+   if args.query:
       # Redo embeddings since we have new data or if user asked
       # Otherwise just fetched the stored dataframe
       if update_embeddings:
@@ -76,4 +81,8 @@ if __name__ == "__main__":
       else:
          print("Getting embeddings from file")
       df = get_embeddings(update_embeddings, model=args.model)
-      perform_search(df, search_vect=args.search)
+      perform_search(df, search_vect=args.query, n=int(args.numRet), contains=args.contains)
+
+   if args.scan:
+      scan_card(args.scan, show_scan=True)
+      sys.exit(0)

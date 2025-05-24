@@ -6,6 +6,13 @@ import time
 
 ESC_KEY_CODE = 27
 DEFAULT_TIMEOUT = 5
+def scan_card(img_path, show_scan=False):
+    print(f"Scanning card: {img_path}")
+    processed_card = preprocess_card(img_path)
+    if show_scan:
+        show_card(processed_card)
+    return extract_card_text(processed_card)
+
 def extract_card_text(img):
     text = pytesseract.image_to_string(img)
     return text
@@ -23,7 +30,6 @@ def close_window(window_name):
     """Handle the cleanup of an OpenCV window."""
     cv2.destroyAllWindows()
     print(f"{window_name} window closed")
-
 
 def show_card(card_image, timeout=DEFAULT_TIMEOUT):
     window_name = "Card"
@@ -45,9 +51,6 @@ def show_card(card_image, timeout=DEFAULT_TIMEOUT):
             close_window(window_name)
             break
 
-#Read image of card
-#Based on printing of card
-#Setting to also just query card data via OCR from saved card database
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description='Image processing')
     parser.add_argument('image_path', type=str, help='Card to process')

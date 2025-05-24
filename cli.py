@@ -50,7 +50,8 @@ def get_scryfall_bulk_data(data_type="default_cards", output_dir="Data"):
 
 
 if __name__ == "__main__":
-   parser = argparse.ArgumentParser(description= 'cli tool')
+   parser = argparse.ArgumentParser(description=
+                                    'Cli tool to manage and search Magic: the Gathering cards')
 
    parser.add_argument('-u', '--update', action='store_true', help='Update the scryfall bulk data')
    parser.add_argument('-e', '--embeddings', action='store_true', help='Redo the vector embeddings')

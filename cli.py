@@ -7,7 +7,7 @@ import os
 import re
 import sys
 from helpers import get_embeddings, perform_search
-from cardReader import scan_card
+from cardReader import scan
 
 saved_embeddings = "Embedded_Magic_cards.pkl"
 
@@ -59,13 +59,10 @@ if __name__ == "__main__":
    parser.add_argument('-c', '--contains', type=str, help='Ensure the similar cards contain the given string', default="")
    parser.add_argument('-k', '--numRet', type=str, help='Adjust the number of cards to filter', default=10)
    parser.add_argument('-m', '--model', type=str, help='Model to use for vector embeddings. NOTE: This it is software is highly model dependent', default="paraphrase-MiniLM-L6-v2")
-   parser.add_argument('-s', '--scan', type=str, help='Scan card')
+   parser.add_argument('-s', '--scan', type=str, help='Card image to scan and query scryfall for')
    args = parser.parse_args()
 
    print(args)
-
-   #Query capitalization
-   #Drop down in the future
 
    update_embeddings = args.embeddings
    if args.update or os.path.exists('Data/oracle-cards-.json') is False:
@@ -85,5 +82,5 @@ if __name__ == "__main__":
       perform_search(df, search_vect=args.query, n=int(args.numRet), contains=args.contains)
 
    if args.scan:
-      scan_card(args.scan, show_scan=True)
+      scan(args.scan)
       sys.exit(0)

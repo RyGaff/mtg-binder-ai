@@ -108,11 +108,8 @@ def query_scryfall(cn = None, set_id = None, card_name = None):
     response.raise_for_status()
     return response.json()
 
-if __name__ == "__main__":
-    parser = argparse.ArgumentParser(description='Image processing')
-    parser.add_argument('image_path', type=str, help='Card to process')
-    args = parser.parse_args()
-    card = preprocess_card(args.image_path)
+def scan(image_path):
+    card = preprocess_card(image_path)
     extracted_text = re.split(r"[ \W+]", extract_card_text(card))
     #show_card(card)
     print(extracted_text)
@@ -126,7 +123,7 @@ if __name__ == "__main__":
         if '/' in extracted_text[i] and card_id == "":
             card_id = extracted_text[i].split('/')[0]
         # Find set_id - find 3 character code
-        if len(extracted_text[i]) == 3 and set_id == "":
+        if len(extracted_text[i]) == 3  and extracted_text[i].isalpha() and set_id == "":
             set_id = extracted_text[i]
 
         # They should be the first returned if ocr read properly
@@ -135,4 +132,11 @@ if __name__ == "__main__":
 
     print(card_id, set_id)
     query_scryfall(cn=card_id, set_id=set_id)
+    return
+
+if __name__ == "__main__":
+    parser = argparse.ArgumentParser(description='Image processing')
+    parser.add_argument('image_path', type=str, help='Card to process')
+    args = parser.parse_args()
+    scan(args.image_path)
     sys.exit(0)

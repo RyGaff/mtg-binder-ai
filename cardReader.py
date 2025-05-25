@@ -23,8 +23,20 @@ def preprocess_card(img):
     #Convert to greyscale
     gray = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
     blurred = cv2.GaussianBlur(gray, (5, 5), 0)
-    edged = cv2.Canny(gray, 30, 150)
+    edged = cv2.Canny(blurred, 30, 150)
+
+    contours, _ = cv2.findContours(edged.copy(), cv2.RETR_EXTERNAL,
+                                   cv2.CHAIN_APPROX_SIMPLE)
+    edged_bgr = cv2.cvtColor(edged, cv2.COLOR_GRAY2BGR)
+    if contours:
+        contours = sorted(contours, key=cv2.contourArea)
+        for c in range(len(contours)):
+            card_contours = contours[c]
+            cv2.drawContours(edged_bgr, [card_contours], -1, (0, 255, 0), 2)
+
+    cv2.imwrite("processed_card.png", edged_bgr)
     return edged
+
 
 def close_window(window_name):
     """Handle the cleanup of an OpenCV window."""
@@ -56,6 +68,6 @@ if __name__ == "__main__":
     parser.add_argument('image_path', type=str, help='Card to process')
     args = parser.parse_args()
     card = preprocess_card(args.image_path)
-    show_card(card)
+    #show_card(card)
     print(extract_card_text(card))
     sys.exit(0)

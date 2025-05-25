@@ -132,7 +132,7 @@ def perform_search(df, search_vect="", n=10, all_embeddings = None, contains = "
         j = 0
         while j < n and i < len(cos_search_results)-1:
             card_name = cos_search_results["card_name"].iloc[i]
-            if contains != "" and contains in df.loc[card_name]["oracle_text"]:
+            if contains == "" or contains in df.loc[card_name]["oracle_text"]:
                 #Python 11 doesn't support these being nested within f strings
                 mana_cost = df.loc[card_name]["mana_cost"]
                 edhrec_rank = df.loc[card_name]["edhrec_rank"]

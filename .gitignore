@@ -3,5 +3,6 @@ Data
 temp*
 model*
 *.npy
+*.png
 .idea
 __pycache__

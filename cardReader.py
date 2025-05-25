@@ -110,7 +110,7 @@ def query_scryfall(cn = None, set_id = None, card_name = None):
 
 def scan(image_path):
     card = preprocess_card(image_path)
-    extracted_text = re.split(r"[ \W+]", extract_card_text(card))
+    extracted_text = re.split(r"[^a-zA-Z0-9/]", extract_card_text(card))
     #show_card(card)
     print(extracted_text)
     # Loop through to make more reliable

@@ -49,6 +49,59 @@ def get_scryfall_bulk_data(data_type="default_cards", output_dir="Data"):
       print(f"An unexpected error occurred: {e}")
 
 
+#Downloads artwork to output_dir and returns missing image_uris
+def download_artwork(unique_artwork, output_dir="Data/images/", set_id=None):
+   print(f"Downloading unique artwork to: {output_dir}... This may take a while")
+   if set_id is not None:
+      print(f"Downloading normal images from set {set_id}")
+      return
+   else :
+      print("Downloading all artwork")
+      with open(unique_artwork, 'r') as f:
+         data = json.load(f)
+
+      #Extract and download the image uris
+       # Attempt to download large, if that does not exist try normal if not, then try small
+
+      missing = []
+      i = 0
+      total = len(data)
+      for item in data:
+         i += 1
+         i_toString = f"{i}/{total}"
+         if "image_uris" in item:
+            if item['image_uris']["large"] is not None:
+               image_url = item['image_uris']["large"]
+            elif item['image_uris']["normal"] is not None:
+               image_url = item['image_uris']["normal"]
+            elif item['image_uris']["small"] is not None:
+               image_url = item['image_uris']["small"]
+            else:
+               print("No image found... Should not happen")
+               missing.append(item)
+               continue
+            try:
+               response = requests.get(image_url, stream=True)
+               response.raise_for_status()  # Raise an exception for HTTP errors
+               clean_name = re.sub(r'[^\w\- ]', '', item['name'])
+               clean_name = re.sub(r'\s+', '-', clean_name)
+               save_name = item['set'] + "-" + item['collector_number'] + "-" + clean_name + '.jpg'
+               save_path = os.path.join(output_dir, save_name)
+
+               with open(save_path, 'wb') as file:
+                  for chunk in response.iter_content(1024):  # Download in chunks
+                     file.write(chunk)
+
+               print(f"{i_toString}  Downloaded: {save_path}")
+            except requests.exceptions.RequestException as error:
+               print(f"{i_toString}  Failed to download image: {error}")
+               print(f"Image url: {image_url}")
+               missing.append(item)
+         else:
+            missing.append(item)
+
+   return missing
+
 if __name__ == "__main__":
    parser = argparse.ArgumentParser(description=
                                     'Cli tool to manage and search Magic: the Gathering cards')
@@ -60,6 +113,7 @@ if __name__ == "__main__":
    parser.add_argument('-k', '--numRet', type=str, help='Adjust the number of cards to filter', default=10)
    parser.add_argument('-m', '--model', type=str, help='Model to use for vector embeddings. NOTE: This it is software is highly model dependent', default="paraphrase-MiniLM-L6-v2")
    parser.add_argument('-s', '--scan', type=str, help='Card image to scan and query scryfall for')
+   parser.add_argument('--Art', action='store_true', help='Download All Artwork')
    args = parser.parse_args()
 
    print(args)
@@ -84,3 +138,6 @@ if __name__ == "__main__":
    if args.scan:
       scan(args.scan)
       sys.exit(0)
+
+   if args.Art:
+      download_artwork(unique_artwork="Data/unique-artwork-.json", output_dir="Data/images")

@@ -118,7 +118,9 @@ def cosine_similarity_search(df, card_name, all_embeddings, soft = True):
         similarities_df = similarities_df[similarities_df['card_name'] != card_name]
         return similarities_df.sort_values(by='similarity', ascending=False)
 
-def perform_search(df, search_vect="", n=10, all_embeddings = None, contains = ""):
+def perform_search(df, search_vect="", n=10, all_embeddings = None, contains = "", identity=""):
+    identity_set = set(identity)
+
     if all_embeddings is None:
         all_embeddings = np.stack(df["embeddings"].values)
 
@@ -132,7 +134,12 @@ def perform_search(df, search_vect="", n=10, all_embeddings = None, contains = "
         j = 0
         while j < n and i < len(cos_search_results)-1:
             card_name = cos_search_results["card_name"].iloc[i]
-            if contains == "" or contains in df.loc[card_name]["oracle_text"]:
+            color_iden = df.loc[card_name]["color_identity"]
+            if len(color_iden) == 0:
+                incolor = True
+            else:
+                incolor = all(isinstance(color, str) and color in identity_set for color in color_iden)
+            if (contains == "" or contains in df.loc[card_name]["oracle_text"]) and (identity == "" or incolor):
                 #Python 11 doesn't support these being nested within f strings
                 mana_cost = df.loc[card_name]["mana_cost"]
                 edhrec_rank = df.loc[card_name]["edhrec_rank"]

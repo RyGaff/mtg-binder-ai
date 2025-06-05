@@ -110,6 +110,7 @@ if __name__ == "__main__":
    parser.add_argument('-e', '--embeddings', action='store_true', help='Redo the vector embeddings')
    parser.add_argument('-q', '--query', type=str, help='Search through similar cards to the given card name')
    parser.add_argument('-c', '--contains', type=str, help='Ensure the similar cards contain the given string', default="")
+   parser.add_argument('-i', '--identity', type=str, help='Ensure the similar cards are within the specified color identity', default="")
    parser.add_argument('-k', '--numRet', type=str, help='Adjust the number of cards to filter', default=10)
    parser.add_argument('-m', '--model', type=str, help='Model to use for vector embeddings. NOTE: This it is software is highly model dependent', default="paraphrase-MiniLM-L6-v2")
    parser.add_argument('-s', '--scan', type=str, help='Card image to scan and query scryfall for')
@@ -133,7 +134,7 @@ if __name__ == "__main__":
       else:
          print("Getting embeddings from file")
       df = get_embeddings(update_embeddings, model=args.model)
-      perform_search(df, search_vect=args.query, n=int(args.numRet), contains=args.contains)
+      perform_search(df, search_vect=args.query, n=int(args.numRet), contains=args.contains, identity=args.identity)
 
    if args.scan:
       scan(args.scan)

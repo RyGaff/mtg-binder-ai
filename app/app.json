@@ -1,0 +1,19 @@
+{
+  "expo": {
+    "name": "MTG Binder",
+    "slug": "mtg-binder-ai",
+    "version": "1.0.0",
+    "scheme": "mtgbinder",
+    "web": { "bundler": "metro" },
+    "plugins": [
+      "expo-router",
+      "expo-sqlite",
+      [
+        "expo-camera",
+        { "cameraPermission": "Allow MTG Binder to access your camera to scan cards." }
+      ]
+    ],
+    "android": { "adaptiveIcon": { "backgroundColor": "#1a1a2e" } },
+    "ios": { "supportsTablet": true }
+  }
+}

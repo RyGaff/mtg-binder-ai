@@ -6,6 +6,7 @@ import type { ThemeName, CustomTheme } from '../theme/themes';
 type ColorFilter = 'W' | 'U' | 'B' | 'R' | 'G' | 'C' | 'all';
 type SortOption = 'name' | 'value' | 'set' | 'added';
 export type EmbeddingStatus = 'idle' | 'downloading' | 'error';
+type ThemeSlots = [CustomTheme | null, CustomTheme | null, CustomTheme | null];
 
 type Store = {
   // Binder
@@ -29,7 +30,7 @@ type Store = {
   // Theme
   theme: ThemeName;
   setTheme: (theme: ThemeName) => void;
-  customThemes: [CustomTheme | null, CustomTheme | null, CustomTheme | null];
+  customThemes: ThemeSlots;
   setCustomTheme: (index: 0 | 1 | 2, theme: CustomTheme) => void;
   deleteCustomTheme: (index: 0 | 1 | 2) => void;
 };
@@ -52,13 +53,13 @@ export const useStore = create<Store>()(
       customThemes: [null, null, null],
       setCustomTheme: (index, theme) =>
         set((state) => {
-          const next: [CustomTheme | null, CustomTheme | null, CustomTheme | null] = [...state.customThemes] as [CustomTheme | null, CustomTheme | null, CustomTheme | null];
+          const next = [...state.customThemes] as ThemeSlots;
           next[index] = theme;
           return { customThemes: next };
         }),
       deleteCustomTheme: (index) =>
         set((state) => {
-          const next: [CustomTheme | null, CustomTheme | null, CustomTheme | null] = [...state.customThemes] as [CustomTheme | null, CustomTheme | null, CustomTheme | null];
+          const next = [...state.customThemes] as ThemeSlots;
           next[index] = null;
           return { customThemes: next };
         }),

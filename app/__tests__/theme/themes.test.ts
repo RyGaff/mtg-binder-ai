@@ -4,8 +4,10 @@ jest.mock('@react-native-async-storage/async-storage', () => ({
   removeItem: jest.fn(() => Promise.resolve()),
 }));
 
+import { renderHook } from '@testing-library/react-hooks';
 import { themes } from '../../src/theme/themes';
 import { useStore } from '../../src/store/useStore';
+import { useTheme } from '../../src/theme/useTheme';
 import { swatches } from '../../src/theme/swatches';
 import type { CustomTheme } from '../../src/theme/themes';
 
@@ -134,5 +136,42 @@ describe('useStore customThemes', () => {
     useStore.getState().setCustomTheme(0, custom);
     useStore.getState().deleteCustomTheme(0);
     expect(useStore.getState().customThemes[0]).toBeNull();
+  });
+});
+
+describe('useTheme', () => {
+  afterEach(() => {
+    useStore.setState({ theme: 'dark', customThemes: [null, null, null] });
+  });
+
+  it('returns dark theme when theme is dark', () => {
+    useStore.setState({ theme: 'dark' });
+    const { result } = renderHook(() => useTheme());
+    expect(result.current.bg).toBe('#111318');
+  });
+
+  it('returns dark fallback when custom slot is active but null', () => {
+    useStore.setState({ theme: 'custom-0', customThemes: [null, null, null] });
+    const { result } = renderHook(() => useTheme());
+    expect(result.current.bg).toBe('#111318');
+  });
+
+  it('returns custom theme when custom slot is set and active', () => {
+    const custom: CustomTheme = {
+      name: 'custom-2',
+      label: 'Purple Night',
+      bg: '#0f0a1a',
+      surface: '#1a1030',
+      surfaceAlt: '#2a1a40',
+      border: '#3a2a50',
+      text: '#ffffff',
+      textSecondary: '#aaaaaa',
+      accent: '#ab47bc',
+    };
+    useStore.setState({ theme: 'custom-2', customThemes: [null, null, custom] });
+    const { result } = renderHook(() => useTheme());
+    expect(result.current.bg).toBe('#0f0a1a');
+    expect(result.current.accent).toBe('#ab47bc');
+    expect((result.current as CustomTheme).label).toBe('Purple Night');
   });
 });

@@ -5,6 +5,9 @@ jest.mock('@react-native-async-storage/async-storage', () => ({
 }));
 
 import { themes } from '../../src/theme/themes';
+import { useStore } from '../../src/store/useStore';
+import { swatches } from '../../src/theme/swatches';
+import type { CustomTheme } from '../../src/theme/themes';
 
 describe('themes', () => {
   it('dark theme has expected bg color', () => {
@@ -35,8 +38,6 @@ describe('themes', () => {
   });
 });
 
-import { useStore } from '../../src/store/useStore';
-
 describe('useStore theme', () => {
   afterEach(() => {
     useStore.getState().setTheme('dark');
@@ -51,8 +52,6 @@ describe('useStore theme', () => {
     expect(useStore.getState().theme).toBe('light');
   });
 });
-
-import { swatches } from '../../src/theme/swatches';
 
 describe('swatches', () => {
   it('each palette has exactly 24 colors', () => {
@@ -78,8 +77,6 @@ describe('swatches', () => {
     expect(swatches).toHaveProperty('accent');
   });
 });
-
-import type { CustomTheme } from '../../src/theme/themes';
 
 describe('CustomTheme type', () => {
   it('CustomTheme has all required keys', () => {

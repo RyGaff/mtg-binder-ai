@@ -1,6 +1,6 @@
 export type ThemeName = 'dark' | 'light' | 'amoled' | 'custom-0' | 'custom-1' | 'custom-2';
 
-export type CustomThemeName = 'custom-0' | 'custom-1' | 'custom-2';
+export type CustomThemeName = Exclude<ThemeName, 'dark' | 'light' | 'amoled'>;
 
 export type Theme = {
   name: ThemeName;

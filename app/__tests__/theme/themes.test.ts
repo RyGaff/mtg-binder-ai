@@ -96,3 +96,43 @@ describe('CustomTheme type', () => {
     expect(custom.bg).toBe('#111318');
   });
 });
+
+describe('useStore customThemes', () => {
+  afterEach(() => {
+    useStore.setState({ customThemes: [null, null, null], theme: 'dark' });
+  });
+
+  it('defaults to three null slots', () => {
+    expect(useStore.getState().customThemes).toEqual([null, null, null]);
+  });
+
+  it('setCustomTheme saves a theme at the given index', () => {
+    const custom: CustomTheme = {
+      name: 'custom-1',
+      label: 'Night Blue',
+      bg: '#0d1117',
+      surface: '#1e2028',
+      surfaceAlt: '#2d3142',
+      border: '#3d3d3d',
+      text: '#ffffff',
+      textSecondary: '#888888',
+      accent: '#42a5f5',
+    };
+    useStore.getState().setCustomTheme(1, custom);
+    expect(useStore.getState().customThemes[1]).toEqual(custom);
+    expect(useStore.getState().customThemes[0]).toBeNull();
+    expect(useStore.getState().customThemes[2]).toBeNull();
+  });
+
+  it('deleteCustomTheme sets the slot back to null', () => {
+    const custom: CustomTheme = {
+      name: 'custom-0',
+      label: 'Test',
+      bg: '#111318', surface: '#1a1c23', surfaceAlt: '#252830',
+      border: '#2a2d38', text: '#ffffff', textSecondary: '#888888', accent: '#4ecdc4',
+    };
+    useStore.getState().setCustomTheme(0, custom);
+    useStore.getState().deleteCustomTheme(0);
+    expect(useStore.getState().customThemes[0]).toBeNull();
+  });
+});

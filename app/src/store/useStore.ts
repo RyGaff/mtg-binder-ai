@@ -2,6 +2,7 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import { create } from 'zustand';
 import { persist, createJSONStorage } from 'zustand/middleware';
 import type { ThemeName, CustomTheme } from '../theme/themes';
+import type { CachedCard } from '../db/cards';
 
 type ColorFilter = 'W' | 'U' | 'B' | 'R' | 'G' | 'C' | 'all';
 type SortOption = 'name' | 'value' | 'set' | 'added';
@@ -22,6 +23,10 @@ type Store = {
   // Scanner
   lastScannedId: string | null;
   setLastScannedId: (id: string | null) => void;
+
+  // Recent scans (in-memory, not persisted)
+  recentScans: CachedCard[];
+  addRecentScan: (card: CachedCard) => void;
 
   // Embeddings
   embeddingStatus: EmbeddingStatus;
@@ -46,6 +51,11 @@ export const useStore = create<Store>()(
       setActiveDeckId: (activeDeckId) => set({ activeDeckId }),
       lastScannedId: null,
       setLastScannedId: (lastScannedId) => set({ lastScannedId }),
+      recentScans: [],
+      addRecentScan: (card) =>
+        set((state) => ({
+          recentScans: [card, ...state.recentScans].slice(0, 10),
+        })),
       embeddingStatus: 'idle',
       setEmbeddingStatus: (embeddingStatus) => set({ embeddingStatus }),
       theme: 'dark',

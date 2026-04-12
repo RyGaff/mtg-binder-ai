@@ -156,9 +156,29 @@ export default function ScanScreen() {
   const [isActive, setIsActive] = useState(true);
   const [pickedImageUri, setPickedImageUri] = useState<string | null>(null);
   const [successCard, setSuccessCard] = useState<string | null>(null);
+  const [panelOpen, setPanelOpen] = useState(false);
   const cameraRef = useRef<CameraView>(null);
   const { setLastScannedId, addRecentScan, recentScans } = useStore();
   const scanLoopRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  const panelAnim = useRef(new Animated.Value(0)).current;
+
+  const openPanel = useCallback(() => {
+    setPanelOpen(true);
+    Animated.timing(panelAnim, {
+      toValue: 1,
+      duration: 250,
+      useNativeDriver: true,
+    }).start();
+  }, [panelAnim]);
+
+  const closePanel = useCallback(() => {
+    Animated.timing(panelAnim, {
+      toValue: 0,
+      duration: 200,
+      useNativeDriver: true,
+    }).start(() => setPanelOpen(false));
+  }, [panelAnim]);
 
   const stopScanning = useCallback(() => {
     setIsActive(false);
@@ -295,6 +315,24 @@ export default function ScanScreen() {
           <Text style={scanStyles.successText}>✓ {successCard}</Text>
         </View>
       )}
+
+      {/* Floating recent-scans button */}
+      <TouchableOpacity
+        style={[
+          scanStyles.recentBtn,
+          recentScans.length === 0 && scanStyles.recentBtnDisabled,
+        ]}
+        onPress={panelOpen ? closePanel : openPanel}
+        disabled={recentScans.length === 0}
+        activeOpacity={0.75}
+      >
+        <Text style={scanStyles.recentBtnIcon}>⏱</Text>
+        {recentScans.length > 0 && (
+          <View style={scanStyles.recentBadge}>
+            <Text style={scanStyles.recentBadgeText}>{recentScans.length}</Text>
+          </View>
+        )}
+      </TouchableOpacity>
 
       {pickedImageUri ? (
         <View style={styles.fullScreenImageContainer}>
@@ -523,5 +561,41 @@ const scanStyles = StyleSheet.create({
     fontWeight: '600',
     letterSpacing: 0.2,
   },
-  // (more styles added in later tasks)
+  recentBtn: {
+    position: 'absolute',
+    top: 56,
+    right: 16,
+    zIndex: 50,
+    width: 44,
+    height: 44,
+    borderRadius: 22,
+    backgroundColor: 'rgba(0,0,0,0.65)',
+    borderWidth: StyleSheet.hairlineWidth,
+    borderColor: 'rgba(255,255,255,0.2)',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  recentBtnDisabled: {
+    opacity: 0.35,
+  },
+  recentBtnIcon: {
+    fontSize: 20,
+  },
+  recentBadge: {
+    position: 'absolute',
+    top: -4,
+    right: -4,
+    minWidth: 18,
+    height: 18,
+    borderRadius: 9,
+    backgroundColor: '#4ecdc4',
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingHorizontal: 3,
+  },
+  recentBadgeText: {
+    color: '#000',
+    fontSize: 10,
+    fontWeight: '700',
+  },
 });

@@ -171,6 +171,7 @@ export default function ScanScreen() {
   const cameraRef = useRef<CameraView>(null);
   const { setLastScannedId, addRecentScan, recentScans } = useStore();
   const scanLoopRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const successTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const panelAnim = useRef(new Animated.Value(0)).current;
 
@@ -196,6 +197,10 @@ export default function ScanScreen() {
     if (scanLoopRef.current) {
       clearTimeout(scanLoopRef.current);
       scanLoopRef.current = null;
+    }
+    if (successTimerRef.current) {
+      clearTimeout(successTimerRef.current);
+      successTimerRef.current = null;
     }
   }, []);
 
@@ -223,7 +228,8 @@ export default function ScanScreen() {
       setLastScannedId(card.scryfall_id);
       setPhase({ status: 'idle' });
       setSuccessCard(card.name);
-      setTimeout(() => {
+      successTimerRef.current = setTimeout(() => {
+        successTimerRef.current = null;
         setSuccessCard(null);
         setPickedImageUri(null);
         if (reschedule) runScanCycle();
@@ -268,6 +274,7 @@ export default function ScanScreen() {
     }
     return () => {
       if (scanLoopRef.current) clearTimeout(scanLoopRef.current);
+      if (successTimerRef.current) clearTimeout(successTimerRef.current);
     };
   }, [isActive]); // eslint-disable-line react-hooks/exhaustive-deps
 

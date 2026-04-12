@@ -194,13 +194,14 @@ export default function ScanScreen() {
       setSuccessCard(card.name);
       setTimeout(() => {
         setSuccessCard(null);
+        setPickedImageUri(null);
         if (reschedule) runScanCycle();
       }, 1500);
     } catch (e) {
       const msg = e instanceof Error ? e.message : 'Unknown error';
       setPhase({ status: 'error', message: msg });
     }
-  }, [stopScanning, setLastScannedId, addRecentScan]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [setLastScannedId, addRecentScan]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const runScanCycle = useCallback(async () => {
     if (!cameraRef.current) return;

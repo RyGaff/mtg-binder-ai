@@ -2,6 +2,7 @@ import {
   View,
   Text,
   Image,
+  FlatList,
   TouchableOpacity,
   StyleSheet,
   Animated,
@@ -54,6 +55,16 @@ async function runOcr(uri: string): Promise<string> {
   return lines.join('\n');
 }
 
+
+function parsePrice(pricesJson: string): string {
+  try {
+    const p = JSON.parse(pricesJson) as Record<string, string | undefined>;
+    const val = p.usd ?? p.usd_foil;
+    return val ? `$${val}` : '—';
+  } catch {
+    return '—';
+  }
+}
 
 function OcrDebugPanel({ phase, ocrText }: { phase: ScanPhase; ocrText: string }) {
   // Visible during all active phases (hide only on idle)
@@ -334,6 +345,59 @@ export default function ScanScreen() {
         )}
       </TouchableOpacity>
 
+      {/* Backdrop — closes panel on tap */}
+      {panelOpen && (
+        <TouchableOpacity
+          style={scanStyles.backdrop}
+          onPress={closePanel}
+          activeOpacity={1}
+        />
+      )}
+
+      {/* Slide-down recent scans panel */}
+      <Animated.View
+        style={[
+          scanStyles.panel,
+          {
+            transform: [
+              {
+                translateY: panelAnim.interpolate({
+                  inputRange: [0, 1],
+                  outputRange: [-320, 0],
+                }),
+              },
+            ],
+          },
+        ]}
+        pointerEvents={panelOpen ? 'auto' : 'none'}
+      >
+        <FlatList
+          data={recentScans}
+          keyExtractor={(item) => item.scryfall_id}
+          renderItem={({ item }) => (
+            <TouchableOpacity
+              style={scanStyles.row}
+              onPress={() => { closePanel(); stopScanning(); router.push(`/card/${item.scryfall_id}`); }}
+              activeOpacity={0.7}
+            >
+              <Image
+                source={{ uri: item.image_uri }}
+                style={scanStyles.thumb}
+                resizeMode="cover"
+              />
+              <View style={scanStyles.rowInfo}>
+                <Text style={scanStyles.rowName} numberOfLines={1}>{item.name}</Text>
+                <Text style={scanStyles.rowSet}>
+                  {item.set_code.toUpperCase()} · #{item.collector_number}
+                </Text>
+              </View>
+              <Text style={scanStyles.rowPrice}>{parsePrice(item.prices)}</Text>
+            </TouchableOpacity>
+          )}
+          ItemSeparatorComponent={() => <View style={scanStyles.separator} />}
+        />
+      </Animated.View>
+
       {pickedImageUri ? (
         <View style={styles.fullScreenImageContainer}>
           <Image source={{ uri: pickedImageUri }} style={styles.fullScreenImage} resizeMode="contain" />
@@ -597,5 +661,64 @@ const scanStyles = StyleSheet.create({
     color: '#000',
     fontSize: 10,
     fontWeight: '700',
+  },
+  backdrop: {
+    position: 'absolute',
+    top: 0,
+    left: 0,
+    right: 0,
+    bottom: 0,
+    zIndex: 48,
+  },
+  panel: {
+    position: 'absolute',
+    top: 108,
+    left: 12,
+    right: 12,
+    maxHeight: 320,
+    zIndex: 49,
+    backgroundColor: 'rgba(0,0,0,0.88)',
+    borderRadius: 12,
+    borderWidth: StyleSheet.hairlineWidth,
+    borderColor: 'rgba(255,255,255,0.12)',
+    overflow: 'hidden',
+  },
+  row: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+    gap: 12,
+  },
+  thumb: {
+    width: 48,
+    height: 68,
+    borderRadius: 4,
+    backgroundColor: 'rgba(255,255,255,0.08)',
+  },
+  rowInfo: {
+    flex: 1,
+    gap: 3,
+  },
+  rowName: {
+    color: '#fff',
+    fontSize: 14,
+    fontWeight: '600',
+  },
+  rowSet: {
+    color: 'rgba(255,255,255,0.5)',
+    fontSize: 11,
+  },
+  rowPrice: {
+    color: '#4ecdc4',
+    fontSize: 13,
+    fontWeight: '500',
+    minWidth: 44,
+    textAlign: 'right',
+  },
+  separator: {
+    height: StyleSheet.hairlineWidth,
+    backgroundColor: 'rgba(255,255,255,0.1)',
+    marginLeft: 72,
   },
 });

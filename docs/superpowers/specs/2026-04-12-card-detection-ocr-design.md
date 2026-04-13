@@ -26,10 +26,14 @@ Cropping to the correct card region before OCR eliminates these failure modes.
 | Path | Purpose |
 |------|---------|
 | `app/modules/card-detector/src/index.ts` | JS API for native module |
-| `app/modules/card-detector/ios/CardDetectorModule.swift` | iOS OpenCV implementation |
+| `app/modules/card-detector/cpp/card_detector.h` | Shared C++ algorithm header |
+| `app/modules/card-detector/cpp/card_detector.cpp` | Shared C++ algorithm — the ONE implementation |
+| `app/modules/card-detector/ios/CardDetectorBridge.mm` | Thin Obj-C++ bridge: decodes image URI → `cv::Mat`, calls C++, returns result to Swift |
+| `app/modules/card-detector/ios/CardDetectorModule.swift` | Expo module registration + calls bridge |
 | `app/modules/card-detector/ios/CardDetector.podspec` | CocoaPod spec |
 | `app/modules/card-detector/android/build.gradle` | Android build config |
-| `app/modules/card-detector/android/src/main/java/expo/modules/carddetector/CardDetectorModule.kt` | Android OpenCV implementation |
+| `app/modules/card-detector/android/src/main/cpp/card_detector_jni.cpp` | Thin JNI bridge: decodes image URI → `cv::Mat`, calls shared C++, returns result to Kotlin |
+| `app/modules/card-detector/android/src/main/java/expo/modules/carddetector/CardDetectorModule.kt` | Expo module registration + calls JNI |
 
 ### Modified files
 
@@ -65,21 +69,51 @@ export type CardCorners = {
 export function detectCardCorners(imageUri: string): Promise<CardCorners | null>;
 ```
 
-### Algorithm (identical on iOS and Android)
+### Shared C++ algorithm (`card_detector.cpp`)
 
-OpenCV pipeline run on each platform using the same parameters:
+The algorithm lives once. Both platforms compile and link this file — no duplication.
 
-1. Decode image to BGR mat
-2. Convert to grayscale
-3. Gaussian blur: kernel 5×5, sigma 0
-4. Canny edge detection: threshold1=50, threshold2=150
-5. `findContours` (RETR_EXTERNAL, CHAIN_APPROX_SIMPLE)
-6. For each contour, `approxPolyDP` with epsilon = 2% of arc length, closed=true
-7. Filter: keep only 4-vertex contours whose area ≥ 15% of total image area
-8. Pick the contour with the largest area
-9. Sort 4 corners: topLeft (min x+y), topRight (max x−y → min y, max x), bottomRight (max x+y), bottomLeft (max y−x → max y, min x)
-10. Normalize to 0–1 range: divide x by image width, y by image height
-11. Return null if no qualifying contour found
+```cpp
+// card_detector.h
+struct CardCorners {
+    float topLeftX,     topLeftY;
+    float topRightX,    topRightY;
+    float bottomRightX, bottomRightY;
+    float bottomLeftX,  bottomLeftY;
+};
+
+// Returns false if no card-shaped contour found.
+bool detectCardCorners(const cv::Mat& image, CardCorners& out);
+```
+
+Pipeline in `card_detector.cpp`:
+
+1. Convert BGR mat to grayscale
+2. Gaussian blur: kernel 5×5, sigma 0
+3. Canny edge detection: threshold1=50, threshold2=150
+4. `findContours` (RETR_EXTERNAL, CHAIN_APPROX_SIMPLE)
+5. For each contour, `approxPolyDP` with epsilon = 2% of arc length, closed=true
+6. Filter: keep only 4-vertex contours whose area ≥ 15% of total image area
+7. Pick the contour with the largest area
+8. Sort 4 corners: topLeft (min x+y), topRight (max x−y), bottomRight (max x+y), bottomLeft (max y−x)
+9. Normalize to 0–1: divide x by `image.cols`, y by `image.rows`
+10. Return false if no qualifying contour found
+
+### iOS bridge (`CardDetectorBridge.mm`)
+
+~30 lines of Objective-C++:
+- Accepts a file URI string
+- Loads image with `cv::imread` (OpenCV handles file:// paths after stripping prefix)
+- Calls `detectCardCorners(mat, corners)`
+- Returns an NSDictionary of the 8 normalized floats to Swift
+
+### Android JNI bridge (`card_detector_jni.cpp`)
+
+~30 lines of C++ with JNI signatures:
+- Accepts a file path Java string
+- Loads image with `cv::imread`
+- Calls `detectCardCorners(mat, corners)`
+- Returns a `jfloatArray` of the 8 normalized floats to Kotlin
 
 ### iOS dependencies
 
@@ -93,11 +127,14 @@ pod 'OpenCV', '~> 4.9.0'
 ```gradle
 // app/android/app/build.gradle
 implementation 'org.opencv:opencv:4.9.0'
+
+// CMakeLists.txt links card_detector.cpp + card_detector_jni.cpp
+externalNativeBuild { cmake { path "src/main/cpp/CMakeLists.txt" } }
 ```
 
-### iOS coordinate system note
+### Coordinate system
 
-OpenCV on iOS reads images via `UIImage` which uses top-left origin — no Y-axis flip needed (unlike `VNDetectRectanglesRequest` which uses bottom-left origin). Return coordinates directly after normalization.
+Both bridges decode images using `cv::imread` which uses top-left origin on both platforms. No Y-axis flip needed. Coordinates returned are directly normalized.
 
 ---
 
@@ -264,6 +301,5 @@ Note: Scryfall 404 on Strategy 1 falls through to Strategy 2 rather than surfaci
 ## 7. Out of Scope
 
 - Perspective correction (de-skewing rotated cards)
-- Android CardDetector bridging via Expo's `ExpoReactModuleInfo` annotation style vs legacy `ReactContextBaseJavaModule` — implement with `expo-modules-core` consistent with iOS
-- OCR preprocessing (grayscale/threshold) on the crop before text recognition — Vision framework handles this internally
+- OCR preprocessing (grayscale/threshold) on the crop before text recognition — Vision framework / ML Kit handle this internally
 - Caching detected corners across scan cycles

@@ -1,4 +1,4 @@
-import { addToCollection, getCollection, updateQuantity, removeFromCollection } from '../../src/db/collection';
+import { addToCollection, getCollection, updateQuantity, removeFromCollection, getFoilCount, getTotalCardCount } from '../../src/db/collection';
 
 jest.mock('expo-sqlite', () => ({
   openDatabaseSync: jest.fn(() => ({
@@ -25,5 +25,13 @@ describe('collection', () => {
 
   it('removeFromCollection does not throw', () => {
     expect(() => removeFromCollection(1)).not.toThrow();
+  });
+
+  it('getFoilCount returns number', () => {
+    expect(typeof getFoilCount()).toBe('number');
+  });
+
+  it('getTotalCardCount returns number', () => {
+    expect(typeof getTotalCardCount()).toBe('number');
   });
 });

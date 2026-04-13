@@ -7,6 +7,7 @@ type ScryfallCard = {
   id: string;
   name: string;
   set: string;
+  set_name?: string;
   collector_number: string;
   mana_cost?: string;
   type_line?: string;
@@ -62,9 +63,38 @@ export async function fetchCardByName(name: string): Promise<CachedCard> {
 
 export type SearchResult = { data: ScryfallCard[]; has_more: boolean; next_page?: string };
 
+export type PrintingSummary = {
+  scryfall_id: string;
+  set_code: string;
+  set_name: string;
+  collector_number: string;
+  image_uri: string;
+  prices: {
+    usd: string | null;
+    usd_foil: string | null;
+  };
+};
+
 export async function searchScryfall(query: string, page = 1): Promise<CachedCard[]> {
   const result = await get<SearchResult>(
     `${BASE}/cards/search?q=${encodeURIComponent(query)}&page=${page}&order=name`
   );
   return result.data.map(normalize);
+}
+
+export async function fetchPrintings(name: string): Promise<PrintingSummary[]> {
+  const query = `!"${name}"`;
+  const url = `${BASE}/cards/search?q=${encodeURIComponent(query)}&unique=prints&order=released&dir=desc`;
+  const result = await get<SearchResult>(url);
+  return result.data.map(c => ({
+    scryfall_id: c.id,
+    set_code: c.set,
+    set_name: c.set_name ?? '',
+    collector_number: c.collector_number,
+    image_uri: c.image_uris?.normal ?? c.card_faces?.[0]?.image_uris?.normal ?? '',
+    prices: {
+      usd: c.prices?.usd ?? null,
+      usd_foil: c.prices?.usd_foil ?? null,
+    },
+  }));
 }

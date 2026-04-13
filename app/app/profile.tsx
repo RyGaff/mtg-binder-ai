@@ -110,27 +110,33 @@ export default function ProfileScreen() {
 
             if (custom) {
               return (
-                <TouchableOpacity
+                <View
                   key={customName}
                   style={[
                     styles.themePill,
                     { backgroundColor: t.surface, borderColor: active ? t.accent : t.border },
                   ]}
-                  onPress={() => setTheme(customName)}
-                  onLongPress={() => router.push(`/theme-editor?slot=${index}&mode=edit`)}
-                  accessibilityRole="button"
-                  accessibilityState={{ selected: active }}
                 >
-                  <Text style={[styles.themePillText, { color: active ? t.accent : t.textSecondary }]} numberOfLines={1}>
-                    {custom.label}
-                  </Text>
+                  <TouchableOpacity
+                    style={{ flex: 1 }}
+                    onPress={() => setTheme(customName)}
+                    accessibilityRole="button"
+                    accessibilityState={{ selected: active }}
+                    accessibilityLabel={custom.label}
+                  >
+                    <Text style={[styles.themePillText, { color: active ? t.accent : t.textSecondary }]} numberOfLines={1}>
+                      {custom.label}
+                    </Text>
+                  </TouchableOpacity>
                   <TouchableOpacity
                     onPress={() => router.push(`/theme-editor?slot=${index}&mode=edit`)}
                     hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+                    accessibilityRole="button"
+                    accessibilityLabel={`Edit ${custom.label}`}
                   >
                     <Text style={[styles.editIcon, { color: t.textSecondary }]}>✏️</Text>
                   </TouchableOpacity>
-                </TouchableOpacity>
+                </View>
               );
             }
 

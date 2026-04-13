@@ -101,3 +101,19 @@ export function getCollectionTotalValue(): number {
     return sum + price * row.quantity;
   }, 0);
 }
+
+export function getFoilCount(): number {
+  const db = getDb();
+  const row = db.getFirstSync<{ total: number | null }>(
+    'SELECT SUM(quantity) as total FROM collection_entries WHERE foil = 1'
+  );
+  return row?.total ?? 0;
+}
+
+export function getTotalCardCount(): number {
+  const db = getDb();
+  const row = db.getFirstSync<{ total: number | null }>(
+    'SELECT SUM(quantity) as total FROM collection_entries'
+  );
+  return row?.total ?? 0;
+}

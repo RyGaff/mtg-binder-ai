@@ -4,16 +4,40 @@
     "slug": "mtg-binder-ai",
     "version": "1.0.0",
     "scheme": "mtgbinder",
-    "web": { "bundler": "metro" },
+    "web": {
+      "bundler": "metro"
+    },
     "plugins": [
       "expo-router",
       "expo-sqlite",
       [
         "expo-camera",
-        { "cameraPermission": "Allow MTG Binder to access your camera to scan cards." }
+        {
+          "cameraPermission": "Allow MTG Binder to access your camera to scan cards."
+        }
       ]
     ],
-    "android": { "adaptiveIcon": { "backgroundColor": "#1a1a2e" } },
-    "ios": { "supportsTablet": true }
+    "android": {
+      "adaptiveIcon": {
+        "backgroundColor": "#1a1a2e"
+      },
+      "permissions": [
+        "android.permission.CAMERA",
+        "android.permission.RECORD_AUDIO"
+      ]
+    },
+    "ios": {
+      "supportsTablet": true,
+      "bundleIdentifier": "com.anonymous.mtg-binder-ai",
+      "infoPlist": {
+        "ITSAppUsesNonExemptEncryption": false
+      }
+    },
+    "extra": {
+      "router": {},
+      "eas": {
+        "projectId": "5a479e3b-1dd8-4119-89e8-56bbff32842b"
+      }
+    }
   }
 }

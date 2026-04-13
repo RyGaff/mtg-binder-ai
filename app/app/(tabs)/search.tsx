@@ -9,37 +9,39 @@ import {
 } from 'react-native';
 import { useState } from 'react';
 import { CardRow } from '../../src/components/CardRow';
-import { useScryfallSearch, useSynergySearch } from '../../src/api/hooks';
+import { useScryfallSearch } from '../../src/api/hooks';
+import { useTheme } from '../../src/theme/useTheme';
 
 type Mode = 'search' | 'synergy';
 
 export default function SearchScreen() {
+  const theme = useTheme();
   const [query, setQuery] = useState('');
   const [synergyCard, setSynergyCard] = useState('');
   const [mode, setMode] = useState<Mode>('search');
 
   const searchResults = useScryfallSearch(mode === 'search' ? query : '');
-  const synergyResults = useSynergySearch(mode === 'synergy' ? synergyCard : '');
+  const synergyResults = useScryfallSearch('');
 
   const active = mode === 'search' ? searchResults : synergyResults;
   const results = active.data ?? [];
 
   return (
-    <View style={styles.screen}>
+    <View style={[styles.screen, { backgroundColor: theme.bg }]}>
       <View style={styles.modeSwitcher}>
         <TouchableOpacity
           onPress={() => setMode('search')}
-          style={[styles.modeBtn, mode === 'search' && styles.modeBtnActive]}
+          style={[styles.modeBtn, { backgroundColor: mode === 'search' ? theme.accent : theme.surface }]}
         >
-          <Text style={[styles.modeBtnText, mode === 'search' && styles.modeBtnTextActive]}>
+          <Text style={[styles.modeBtnText, { color: mode === 'search' ? theme.text : theme.textSecondary }]}>
             Search
           </Text>
         </TouchableOpacity>
         <TouchableOpacity
           onPress={() => setMode('synergy')}
-          style={[styles.modeBtn, mode === 'synergy' && styles.modeBtnActive]}
+          style={[styles.modeBtn, { backgroundColor: mode === 'synergy' ? theme.accent : theme.surface }]}
         >
-          <Text style={[styles.modeBtnText, mode === 'synergy' && styles.modeBtnTextActive]}>
+          <Text style={[styles.modeBtnText, { color: mode === 'synergy' ? theme.text : theme.textSecondary }]}>
             ⚡ Synergy
           </Text>
         </TouchableOpacity>
@@ -48,31 +50,31 @@ export default function SearchScreen() {
       <View style={styles.inputRow}>
         {mode === 'search' ? (
           <TextInput
-            style={styles.input}
+            style={[styles.input, { backgroundColor: theme.surface, color: theme.text }]}
             value={query}
             onChangeText={setQuery}
             placeholder='Search cards (e.g. "draws a card")'
-            placeholderTextColor="#555"
+            placeholderTextColor={theme.textSecondary}
             autoCorrect={false}
           />
         ) : (
           <TextInput
-            style={styles.input}
+            style={[styles.input, { backgroundColor: theme.surface, color: theme.text }]}
             value={synergyCard}
             onChangeText={setSynergyCard}
             placeholder="Enter a card name (e.g. Teysa Karlov)"
-            placeholderTextColor="#555"
+            placeholderTextColor={theme.textSecondary}
             autoCorrect={false}
           />
         )}
       </View>
 
       {active.isLoading && (
-        <ActivityIndicator style={styles.loader} color="#4ecdc4" />
+        <ActivityIndicator style={styles.loader} color={theme.accent} />
       )}
 
       {mode === 'synergy' && synergyCard.length > 1 && !active.isLoading && (
-        <Text style={styles.synergyHint}>
+        <Text style={[styles.synergyHint, { color: theme.textSecondary }]}>
           Showing cards that synergize with {synergyCard}
         </Text>
       )}
@@ -84,7 +86,7 @@ export default function SearchScreen() {
         renderItem={({ item }) => <CardRow card={item} />}
         ListEmptyComponent={
           !active.isLoading && (query.length > 1 || synergyCard.length > 1) ? (
-            <Text style={styles.empty}>No results</Text>
+            <Text style={[styles.empty, { color: theme.textSecondary }]}>No results</Text>
           ) : null
         }
       />
@@ -93,28 +95,23 @@ export default function SearchScreen() {
 }
 
 const styles = StyleSheet.create({
-  screen: { flex: 1, backgroundColor: '#111318' },
+  screen: { flex: 1 },
   modeSwitcher: { flexDirection: 'row', padding: 12, gap: 8 },
   modeBtn: {
     flex: 1,
     padding: 10,
     borderRadius: 8,
-    backgroundColor: '#1a1c23',
     alignItems: 'center',
   },
-  modeBtnActive: { backgroundColor: '#4ecdc4' },
-  modeBtnText: { color: '#888', fontWeight: '600' },
-  modeBtnTextActive: { color: '#fff' },
+  modeBtnText: { fontWeight: '600' },
   inputRow: { paddingHorizontal: 12, paddingBottom: 8 },
   input: {
-    backgroundColor: '#1a1c23',
-    color: '#fff',
     borderRadius: 8,
     padding: 12,
     fontSize: 14,
   },
   loader: { marginTop: 20 },
-  synergyHint: { color: '#888', fontSize: 12, paddingHorizontal: 16, marginBottom: 8 },
+  synergyHint: { fontSize: 12, paddingHorizontal: 16, marginBottom: 8 },
   list: { padding: 12 },
-  empty: { color: '#555', textAlign: 'center', marginTop: 40 },
+  empty: { textAlign: 'center', marginTop: 40 },
 });

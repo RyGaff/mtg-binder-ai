@@ -32,8 +32,10 @@ import {
   parseImportFile,
 } from '../../src/export/collection';
 import { fetchCardByName, fetchCardBySetNumber } from '../../src/api/scryfall';
+import { useTheme } from '../../src/theme/useTheme';
 
 export default function BinderScreen() {
+  const theme = useTheme();
   const router = useRouter();
   const qc = useQueryClient();
   const { colorFilter, setColorFilter } = useStore();
@@ -152,18 +154,18 @@ export default function BinderScreen() {
     : 0;
 
   return (
-    <View style={styles.container}>
-      <View style={styles.header}>
+    <View style={[styles.container, { backgroundColor: theme.bg }]}>
+      <View style={[styles.header, { backgroundColor: theme.surface }]}>
         <View>
-          <Text style={styles.count}>{entries.length} cards</Text>
-          <Text style={styles.value}>${totalValue.toFixed(2)}</Text>
+          <Text style={[styles.count, { color: theme.textSecondary }]}>{entries.length} cards</Text>
+          <Text style={[styles.value, { color: theme.accent }]}>${totalValue.toFixed(2)}</Text>
         </View>
         <View style={styles.headerBtns}>
-          <TouchableOpacity style={styles.headerBtn} onPress={handleImport}>
-            <Text style={styles.headerBtnText}>Import</Text>
+          <TouchableOpacity style={[styles.headerBtn, { backgroundColor: theme.surfaceAlt }]} onPress={handleImport}>
+            <Text style={[styles.headerBtnText, { color: theme.text }]}>Import</Text>
           </TouchableOpacity>
-          <TouchableOpacity style={styles.headerBtn} onPress={handleExport}>
-            <Text style={styles.headerBtnText}>Export</Text>
+          <TouchableOpacity style={[styles.headerBtn, { backgroundColor: theme.surfaceAlt }]} onPress={handleExport}>
+            <Text style={[styles.headerBtnText, { color: theme.text }]}>Export</Text>
           </TouchableOpacity>
           {__DEV__ && (
             <TouchableOpacity
@@ -183,16 +185,16 @@ export default function BinderScreen() {
                 ])
               }
             >
-              <Text style={styles.headerBtnText}>DEV: Clear</Text>
+              <Text style={[styles.headerBtnText, { color: theme.text }]}>DEV: Clear</Text>
             </TouchableOpacity>
           )}
         </View>
       </View>
       <View style={styles.toolbar}>
         <TextInput
-          style={styles.searchBar}
+          style={[styles.searchBar, { backgroundColor: theme.surface, color: theme.text }]}
           placeholder="Search..."
-          placeholderTextColor="#555"
+          placeholderTextColor={theme.textSecondary}
           value={searchQuery}
           onChangeText={setSearchQuery}
           clearButtonMode="while-editing"
@@ -204,17 +206,17 @@ export default function BinderScreen() {
 
       <Modal visible={importProgress !== null} transparent animationType="fade">
         <View style={styles.overlay}>
-          <View style={styles.importCard}>
-            <ActivityIndicator size="large" color="#4ecdc4" />
-            <Text style={styles.importTitle}>Importing Cards</Text>
-            <Text style={styles.importCount}>
+          <View style={[styles.importCard, { backgroundColor: theme.surface }]}>
+            <ActivityIndicator size="large" color={theme.accent} />
+            <Text style={[styles.importTitle, { color: theme.text }]}>Importing Cards</Text>
+            <Text style={[styles.importCount, { color: theme.accent }]}>
               {importProgress?.current ?? 0} / {importProgress?.total ?? 0}
             </Text>
-            <Text style={styles.importName} numberOfLines={1}>
+            <Text style={[styles.importName, { color: theme.textSecondary }]} numberOfLines={1}>
               {importProgress?.currentName}
             </Text>
-            <View style={styles.progressTrack}>
-              <View style={[styles.progressFill, { width: `${progress * 100}%` }]} />
+            <View style={[styles.progressTrack, { backgroundColor: theme.surfaceAlt }]}>
+              <View style={[styles.progressFill, { width: `${progress * 100}%`, backgroundColor: theme.accent }]} />
             </View>
           </View>
         </View>
@@ -224,25 +226,23 @@ export default function BinderScreen() {
 }
 
 const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: '#111318' },
+  container: { flex: 1 },
   header: {
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
     paddingHorizontal: 16,
     paddingVertical: 10,
-    backgroundColor: '#1a1c23',
   },
-  count: { color: '#aaa', fontSize: 13 },
-  value: { color: '#4ecdc4', fontSize: 16, fontWeight: '700' },
+  count: { fontSize: 13 },
+  value: { fontSize: 16, fontWeight: '700' },
   headerBtns: { flexDirection: 'row', gap: 8 },
   headerBtn: {
-    backgroundColor: '#252830',
     borderRadius: 6,
     paddingHorizontal: 12,
     paddingVertical: 6,
   },
-  headerBtnText: { color: '#fff', fontSize: 12, fontWeight: '600' },
+  headerBtnText: { fontSize: 12, fontWeight: '600' },
   headerBtnDanger: { backgroundColor: '#7a1a1a' },
   toolbar: {
     flexDirection: 'row',
@@ -253,8 +253,6 @@ const styles = StyleSheet.create({
   },
   searchBar: {
     flex: 1,
-    backgroundColor: '#1a1c23',
-    color: '#fff',
     paddingHorizontal: 12,
     paddingVertical: 8,
     borderRadius: 8,
@@ -267,26 +265,23 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
   },
   importCard: {
-    backgroundColor: '#1a1c23',
     borderRadius: 16,
     padding: 28,
     width: 280,
     alignItems: 'center',
     gap: 12,
   },
-  importTitle: { color: '#fff', fontSize: 17, fontWeight: '700' },
-  importCount: { color: '#4ecdc4', fontSize: 22, fontWeight: '700' },
-  importName: { color: '#aaa', fontSize: 13, maxWidth: 220, textAlign: 'center' },
+  importTitle: { fontSize: 17, fontWeight: '700' },
+  importCount: { fontSize: 22, fontWeight: '700' },
+  importName: { fontSize: 13, maxWidth: 220, textAlign: 'center' },
   progressTrack: {
     width: '100%',
     height: 4,
-    backgroundColor: '#252830',
     borderRadius: 2,
     overflow: 'hidden',
   },
   progressFill: {
     height: '100%',
-    backgroundColor: '#4ecdc4',
     borderRadius: 2,
   },
 });

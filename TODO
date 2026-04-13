@@ -1,0 +1,34 @@
+PRIO:
+    Fix Scanner
+
+
+Tabs:
+    Binder:
+       Create folders to organize cards. 
+       Sorting - Categories, desc, aesc
+       Settings - Currency, Language 
+    Decks:
+        Thumbnail:
+            Commander preview
+            Color identity 
+        Deck Screen:
+            Commander if commander.
+            Different views like moxfield.
+            Stats Screen
+            Tokens
+        Test Decks
+        Purchase 
+        Share, export, import 
+    Scan:
+        Fix scanner
+        More detail on card boundries
+        price scan 
+        add to collection 
+        Language
+        Scan directly into a deck or binder or folders
+    Search:
+        Filters overhaul
+        Scryfall search syntax 
+        Sets 
+    
+    Trade screen

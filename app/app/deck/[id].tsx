@@ -17,8 +17,10 @@ import {
   exportDeckAsText,
   type DeckCard,
 } from '../../src/db/decks';
+import { useTheme } from '../../src/theme/useTheme';
 
 export default function DeckDetailScreen() {
+  const theme = useTheme();
   const { id } = useLocalSearchParams<{ id: string }>();
   const deckId = Number(id);
   const router = useRouter();
@@ -71,26 +73,26 @@ export default function DeckDetailScreen() {
   };
 
   return (
-    <View style={styles.screen}>
-      <View style={styles.header}>
-        <Text style={styles.deckName}>{deck?.name ?? 'Deck'}</Text>
-        <Text style={styles.deckMeta}>
+    <View style={[styles.screen, { backgroundColor: theme.bg }]}>
+      <View style={[styles.header, { backgroundColor: theme.surface }]}>
+        <Text style={[styles.deckName, { color: theme.text }]}>{deck?.name ?? 'Deck'}</Text>
+        <Text style={[styles.deckMeta, { color: theme.textSecondary }]}>
           {deck?.format} · {cards.length} cards
         </Text>
       </View>
 
       <View style={styles.actions}>
         <TouchableOpacity
-          style={styles.btn}
+          style={[styles.btn, { backgroundColor: theme.accent }]}
           onPress={() => router.push('/search')}
         >
-          <Text style={styles.btnText}>+ Add Cards</Text>
+          <Text style={[styles.btnText, { color: theme.text }]}>+ Add Cards</Text>
         </TouchableOpacity>
         <TouchableOpacity
-          style={[styles.btn, styles.btnSecondary]}
+          style={[styles.btn, { backgroundColor: theme.surfaceAlt }]}
           onPress={handleExport}
         >
-          <Text style={styles.btnText}>Export</Text>
+          <Text style={[styles.btnText, { color: theme.text }]}>Export</Text>
         </TouchableOpacity>
       </View>
 
@@ -99,28 +101,28 @@ export default function DeckDetailScreen() {
         keyExtractor={(item) => `${item.scryfall_id}-${item.board}`}
         contentContainerStyle={styles.list}
         renderSectionHeader={({ section }) => (
-          <Text style={styles.sectionHeader}>
+          <Text style={[styles.sectionHeader, { color: theme.accent }]}>
             {section.title} (
             {section.data.reduce((s, c) => s + c.quantity, 0)})
           </Text>
         )}
         renderItem={({ item }: { item: DeckCard }) => (
           <TouchableOpacity
-            style={styles.cardRow}
+            style={[styles.cardRow, { borderBottomColor: theme.surface }]}
             onPress={() => router.push(`/card/${item.scryfall_id}`)}
             onLongPress={() => handleRemoveCard(item)}
           >
-            <Text style={styles.qty}>{item.quantity}×</Text>
+            <Text style={[styles.qty, { color: theme.textSecondary }]}>{item.quantity}×</Text>
             <View style={styles.cardInfo}>
-              <Text style={styles.cardName}>{item.name}</Text>
-              <Text style={styles.cardType}>
+              <Text style={[styles.cardName, { color: theme.text }]}>{item.name}</Text>
+              <Text style={[styles.cardType, { color: theme.textSecondary }]}>
                 {item.mana_cost}{'  '}{item.type_line}
               </Text>
             </View>
           </TouchableOpacity>
         )}
         ListEmptyComponent={
-          <Text style={styles.empty}>
+          <Text style={[styles.empty, { color: theme.textSecondary }]}>
             No cards yet. Tap "+ Add Cards" to search.
           </Text>
         }
@@ -130,23 +132,20 @@ export default function DeckDetailScreen() {
 }
 
 const styles = StyleSheet.create({
-  screen: { flex: 1, backgroundColor: '#111318' },
-  header: { padding: 16, backgroundColor: '#1a1c23' },
-  deckName: { color: '#fff', fontSize: 20, fontWeight: '700' },
-  deckMeta: { color: '#888', fontSize: 13, marginTop: 2 },
+  screen: { flex: 1 },
+  header: { padding: 16 },
+  deckName: { fontSize: 20, fontWeight: '700' },
+  deckMeta: { fontSize: 13, marginTop: 2 },
   actions: { flexDirection: 'row', gap: 8, padding: 12 },
   btn: {
     flex: 1,
-    backgroundColor: '#4ecdc4',
     borderRadius: 8,
     padding: 12,
     alignItems: 'center',
   },
-  btnSecondary: { backgroundColor: '#252830' },
-  btnText: { color: '#fff', fontWeight: '600' },
+  btnText: { fontWeight: '600' },
   list: { padding: 12 },
   sectionHeader: {
-    color: '#4ecdc4',
     fontSize: 12,
     fontWeight: '700',
     textTransform: 'uppercase',
@@ -159,11 +158,10 @@ const styles = StyleSheet.create({
     gap: 10,
     paddingVertical: 8,
     borderBottomWidth: 1,
-    borderBottomColor: '#1a1c23',
   },
-  qty: { color: '#888', fontSize: 14, width: 28, textAlign: 'right' },
+  qty: { fontSize: 14, width: 28, textAlign: 'right' },
   cardInfo: { flex: 1 },
-  cardName: { color: '#fff', fontSize: 14 },
-  cardType: { color: '#555', fontSize: 11, marginTop: 2 },
-  empty: { color: '#555', textAlign: 'center', marginTop: 60 },
+  cardName: { fontSize: 14 },
+  cardType: { fontSize: 11, marginTop: 2 },
+  empty: { textAlign: 'center', marginTop: 60 },
 });

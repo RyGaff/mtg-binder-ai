@@ -3,11 +3,12 @@ import {
   TouchableOpacity,
   View,
   Text,
-  Image,
   StyleSheet,
   Dimensions,
 } from 'react-native';
 import { useRouter } from 'expo-router';
+import { useTheme } from '../theme/useTheme';
+import { PressableCardImage } from './PressableCardImage';
 import type { CollectionEntryWithCard } from '../db/collection';
 
 const COLS = 3;
@@ -24,6 +25,7 @@ type Props = {
 
 export function CardGrid({ entries, onAddPress }: Props) {
   const router = useRouter();
+  const theme = useTheme();
   const data: GridItem[] = [...entries, { isAddButton: true }];
 
   return (
@@ -39,11 +41,11 @@ export function CardGrid({ entries, onAddPress }: Props) {
         if ('isAddButton' in item) {
           return (
             <TouchableOpacity
-              style={[styles.card, styles.addCard]}
+              style={[styles.card, styles.addCard, { borderColor: theme.accent + '60' }]}
               onPress={onAddPress}
             >
-              <Text style={styles.addPlus}>+</Text>
-              <Text style={styles.addLabel}>Add card</Text>
+              <Text style={[styles.addPlus, { color: theme.accent }]}>+</Text>
+              <Text style={[styles.addLabel, { color: theme.accent }]}>Add card</Text>
             </TouchableOpacity>
           );
         }
@@ -53,25 +55,25 @@ export function CardGrid({ entries, onAddPress }: Props) {
 
         return (
           <TouchableOpacity
-            style={styles.card}
+            style={[styles.card, { backgroundColor: theme.surface }]}
             onPress={() => router.push(`/card/${item.scryfall_id}`)}
           >
             {item.image_uri ? (
-              <Image
-                source={{ uri: item.image_uri }}
+              <PressableCardImage
+                uri={item.image_uri}
                 style={styles.image}
-                resizeMode="cover"
+                onPress={() => router.push(`/card/${item.scryfall_id}`)}
               />
             ) : (
-              <View style={[styles.image, styles.imagePlaceholder]}>
-                <Text style={styles.placeholderText}>{item.name[0]}</Text>
+              <View style={[styles.image, { backgroundColor: theme.surfaceAlt, alignItems: 'center', justifyContent: 'center' }]}>
+                <Text style={[styles.placeholderText, { color: theme.textSecondary }]}>{item.name[0]}</Text>
               </View>
             )}
             <View style={styles.info}>
-              <Text style={styles.name} numberOfLines={1}>
+              <Text style={[styles.name, { color: theme.text }]} numberOfLines={1}>
                 {item.name}
               </Text>
-              <Text style={styles.meta}>
+              <Text style={[styles.meta, { color: theme.textSecondary }]}>
                 ×{item.quantity}
                 {item.foil ? ' ✨' : ''} · {price ? `$${price}` : '—'}
               </Text>
@@ -86,30 +88,19 @@ export function CardGrid({ entries, onAddPress }: Props) {
 const styles = StyleSheet.create({
   list: { padding: 16 },
   row: { gap: 8, marginBottom: 8 },
-  card: {
-    width: CARD_WIDTH,
-    backgroundColor: '#1a1c23',
-    borderRadius: 8,
-    overflow: 'hidden',
-  },
+  card: { width: CARD_WIDTH, borderRadius: 8, overflow: 'hidden' },
   image: { width: CARD_WIDTH, height: CARD_WIDTH * 1.4 },
-  imagePlaceholder: {
-    backgroundColor: '#2a1a3e',
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  placeholderText: { color: '#888', fontSize: 24 },
+  placeholderText: { fontSize: 24 },
   info: { padding: 6 },
-  name: { color: '#fff', fontSize: 11, fontWeight: '600' },
-  meta: { color: '#888', fontSize: 10, marginTop: 2 },
+  name: { fontSize: 11, fontWeight: '600' },
+  meta: { fontSize: 10, marginTop: 2 },
   addCard: {
     borderWidth: 1,
-    borderColor: '#4ecdc460',
     borderStyle: 'dashed',
     alignItems: 'center',
     justifyContent: 'center',
     height: CARD_WIDTH * 1.4 + 36,
   },
-  addPlus: { color: '#4ecdc4', fontSize: 28, lineHeight: 32 },
-  addLabel: { color: '#4ecdc4', fontSize: 11 },
+  addPlus: { fontSize: 28, lineHeight: 32 },
+  addLabel: { fontSize: 11 },
 });

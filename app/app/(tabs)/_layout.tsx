@@ -1,11 +1,13 @@
-import { Tabs } from 'expo-router';
-import { Text } from 'react-native';
+import { Tabs, useRouter} from 'expo-router';
+import { Text, TouchableOpacity } from 'react-native';
 
 function TabIcon({ label }: { label: string }) {
   return <Text style={{ fontSize: 18 }}>{label}</Text>;
 }
 
 export default function TabLayout() {
+  const router = useRouter();
+
   return (
     <Tabs
       screenOptions={{
@@ -21,6 +23,15 @@ export default function TabLayout() {
         options={{
           title: 'Binder',
           tabBarIcon: () => <TabIcon label="📦" />,
+          headerRight: () => (
+            <TouchableOpacity
+              onPress={() => router.push('/profile')}
+              style={{ marginRight: 16 }}
+              accessibilityLabel='Profile'
+              >
+                <Text style={{ fontSize: 20 }}>👤</Text>
+              </TouchableOpacity>
+          )
         }}
       />
       <Tabs.Screen

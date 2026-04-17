@@ -33,9 +33,13 @@ describe('scryfall API', () => {
   });
 
   it('fetchCardBySetNumber calls correct URL', async () => {
+    (fetch as jest.Mock).mockResolvedValueOnce({
+      ok: true,
+      json: async () => ({ data: [mockScryfallCard] }),
+    });
     await fetchCardBySetNumber('lea', '161');
     expect(fetch).toHaveBeenCalledWith(
-      'https://api.scryfall.com/cards/lea/161',
+      'https://api.scryfall.com/cards/search?q=set%3Alea+cn%3A161',
       expect.any(Object)
     );
   });
@@ -101,6 +105,7 @@ describe('fetchPrintings', () => {
       set_code: 'lea',
       set_name: 'Limited Edition Alpha',
       collector_number: '161',
+      image_uri: '',
       prices: { usd: '1200.00', usd_foil: null },
     });
     expect(results[1].prices.usd_foil).toBe('4.50');

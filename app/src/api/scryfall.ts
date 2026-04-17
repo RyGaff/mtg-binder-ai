@@ -52,8 +52,12 @@ export async function fetchCardById(id: string): Promise<CachedCard> {
 }
 
 export async function fetchCardBySetNumber(setCode: string, collectorNumber: string): Promise<CachedCard> {
-  const card = await get<ScryfallCard>(`${BASE}/cards/${setCode.toLowerCase()}/${collectorNumber}`);
-  return normalize(card);
+  // Use search endpoint (mirrors Python: /cards/search?q=set:ltr+cn:0322)
+  // More robust than direct /cards/:set/:number — handles leading zeros, case etc.
+  const url = `${BASE}/cards/search?q=set%3A${encodeURIComponent(setCode.toLowerCase())}+cn%3A${encodeURIComponent(collectorNumber)}`;
+  const result = await get<{ data: ScryfallCard[] }>(url);
+  if (!result.data?.length) throw new Error(`Scryfall: no card for ${setCode}/${collectorNumber}`);
+  return normalize(result.data[0]);
 }
 
 export async function fetchCardByName(name: string): Promise<CachedCard> {

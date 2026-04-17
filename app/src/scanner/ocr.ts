@@ -1,76 +1,190 @@
+import * as ImageManipulator from 'expo-image-manipulator';
+import { File, Paths } from 'expo-file-system';
+import { detectCardCorners } from '../../modules/card-detector/src';
+import { fetchCardBySetNumber, fetchCardByName } from '../api/scryfall';
+import type { CachedCard } from '../db/cards';
+
+// ── Types ────────────────────────────────────────────────────────────────────
+
 export type ParsedCard = { setCode: string; collectorNumber: string };
 
-// Tokens that look like set codes but aren't — language codes, rarity letters,
-// common English words, MTG oracle-text words, and copyright noise.
+export type ScanResult = {
+  strategy:  'set_number' | 'name';
+  card:      CachedCard;
+  corners:   import('../../modules/card-detector/src').CardCorners;
+  imageW:    number;
+  imageH:    number;
+  ocrText:   string;   // raw text from the region that produced the result
+  blText:    string;   // always: raw bottom-left crop OCR (for diagnostics)
+};
+
+export type ScanProgress =
+  | { step: 'corners_detected'; corners: import('../../modules/card-detector/src').CardCorners; imageW: number; imageH: number }
+  | { step: 'bl_ocr_done'; blText: string }
+  | { step: 'name_ocr_done'; nameText: string };
+
+// ── Helpers (internal) ───────────────────────────────────────────────────────
+
 const SKIP_TOKENS = new Set([
-  // Language codes
   'EN', 'FR', 'DE', 'ES', 'IT', 'PT', 'JA', 'KO', 'RU', 'ZH', 'PH', 'CS',
-  // Single-letter rarity / shorthand
   'R', 'U', 'C', 'M', 'S', 'T', 'L',
-  // Common English words that appear in card text / copyright lines
   'THE', 'AND', 'FOR', 'YOU', 'MAY', 'TAP', 'PUT', 'TOP', 'NEW',
   'COPY', 'CAST', 'EACH', 'FROM', 'YOUR', 'BEEN', 'THAT', 'CARD',
   'WITH', 'LESS', 'MANA', 'AURA', 'NON',
-  // Copyright / attribution noise
   'MEE', 'LLC', 'INC', 'LTD', 'ALL', 'TM',
 ]);
+
+async function resolveToFileUri(uri: string): Promise<string> {
+  if (uri.startsWith('file://') || uri.startsWith('/')) return uri;
+  const dest = new File(Paths.cache, `scan_ocr_${Date.now()}.jpg`);
+  const source = new File(uri);
+  source.copy(dest);
+  return dest.uri;
+}
+
+async function runOcr(uri: string): Promise<string> {
+  const TextRecognition = require('react-native-text-recognition').default;
+  if (!TextRecognition || typeof TextRecognition.recognize !== 'function') {
+    throw new Error(
+      'OCR module not available. Run `expo run:ios` to link native dependencies.'
+    );
+  }
+  const resolvedUri = await resolveToFileUri(uri);
+  const lines: string[] = await TextRecognition.recognize(resolvedUri);
+  return lines.join('\n');
+}
+
+function clamp(value: number, min: number, max: number): number {
+  return Math.max(min, Math.min(max, value));
+}
+
+// ── Public: parseSetAndNumber ────────────────────────────────────────────────
 
 /**
  * Parses raw OCR text from the bottom-left corner of an MTG card.
  *
- * Modern card format: "042/350 R IKO EN"  (number, rarity, set code, language)
- * Older card format:  "IKO 042/350"       (set code, number)
+ * Mirrors the Python cardReader.py logic:
+ *   tokens = re.split(r"[^a-zA-Z0-9/]", text)
+ *   card_id = first purely numeric token, or left side of "NNN/NNN"
+ *   set_id  = first exactly 3-char all-alpha token (not a skip token)
  *
- * Finds the collector number and set code independently so both orderings work.
- * Set-code candidates are drawn only from the last 3 lines of the OCR output
- * to avoid matching words from oracle text in the card body.
+ * e.g. "R 0322\nLTR EN\nArtist" → { setCode: 'ltr', collectorNumber: '0322' }
  */
 export function parseSetAndNumber(text: string): ParsedCard | null {
-  const upper = text.toUpperCase();
+  // Split on anything that isn't alphanumeric or '/' — same as Python
+  const tokens = text.toUpperCase().split(/[^A-Z0-9/]+/).filter(Boolean);
 
-  // Collector number: 1–4 digits, optionally followed by /total.
-  // Strip leading zeros so Scryfall accepts the value (e.g. "0322" → "322").
-  const numMatch = upper.match(/\b(\d{1,4})(?:\/\d+)?\b/);
-  if (!numMatch) return null;
-  const collectorNumber = numMatch[1].replace(/^0+(\d)/, '$1');
+  let collectorNumber = '';
+  let setCode = '';
 
-  // Anchor set-code search to the bottom copyright line where the format is
-  // "{number} {rarity} {SET} {LANG}".  Scanning the full OCR text causes
-  // oracle-text words like THE, AND, etc. to win the election even with
-  // SKIP_TOKENS, so restrict to the last 3 lines.
-  const lines = upper.split('\n');
-  const bottomLines = lines.slice(-3).join('\n');
+  for (const token of tokens) {
+    if (!collectorNumber) {
+      if (/^\d+$/.test(token)) {
+        collectorNumber = token;
+      } else if (/^\d+\/\d+$/.test(token)) {
+        collectorNumber = token.split('/')[0];
+      }
+    }
+    if (!setCode && token.length === 3 && /^[A-Z]+$/.test(token) && !SKIP_TOKENS.has(token)) {
+      setCode = token;
+    }
+    if (collectorNumber && setCode) break;
+  }
 
-  // Set code: starts with a letter, 2–4 alphanumeric chars, not a skip token
-  const setCandidates = [...bottomLines.matchAll(/\b([A-Z][A-Z0-9]{1,3})\b/g)]
-    .map(m => m[1])
-    .filter(s => !SKIP_TOKENS.has(s) && !/^\d+$/.test(s));
+  // Fallback: accept alphanumeric set codes (e.g. M21) if no pure-alpha found
+  if (collectorNumber && !setCode) {
+    for (const token of tokens) {
+      if (/^[A-Z][A-Z0-9]{2}$/.test(token) && !SKIP_TOKENS.has(token)) {
+        setCode = token;
+        break;
+      }
+    }
+  }
 
-  if (setCandidates.length === 0) return null;
-
-  // Prefer 3-letter all-alpha codes (most MTG sets), fall back to first candidate
-  const setCode = (setCandidates.find(s => /^[A-Z]{3}$/.test(s)) ?? setCandidates[0]).toLowerCase();
-
-  return { setCode, collectorNumber };
+  if (!collectorNumber || !setCode) return null;
+  return { setCode: setCode.toLowerCase(), collectorNumber };
 }
 
+// ── Public: scanCard ─────────────────────────────────────────────────────────
+
 /**
- * Runs OCR on a photo URI and returns parsed set/number.
- * Returns null on parse failure so the caller can show a "try again" prompt.
- *
- * NOTE: the URI must be a local file:// path. Callers are responsible for
- * copying ph:// or content:// asset URIs to a cache file before calling this.
+ * Full scanning pipeline:
+ * 1. Detect card corners with OpenCV (native module)
+ * 2. Crop bottom-left → OCR → parse set/number → Scryfall (Strategy 1)
+ * 3. Fallback: crop name region top-left → OCR → fuzzy name lookup (Strategy 2)
  */
-export async function scanCardImage(imageUri: string): Promise<ParsedCard | null> {
-  // Dynamic require so Jest tests don't need to mock the native module.
-  // NativeModules.TextRecognition is null when the native pod was never linked —
-  // this produces "Cannot read property 'recognize' of null" at runtime.
-  const TextRecognition = require('react-native-text-recognition').default;
-  if (!TextRecognition || typeof TextRecognition.recognize !== 'function') {
-    throw new Error(
-      'OCR module is not available. Rebuild the app with `expo run:ios` to link native dependencies.'
-    );
+export async function scanCard(
+  uri: string,
+  onProgress?: (p: ScanProgress) => void,
+  imageSize?: { width: number; height: number },
+): Promise<ScanResult> {
+  const corners = await detectCardCorners(uri);
+  if (!corners) throw new Error('No card detected in image');
+
+  let imgW: number;
+  let imgH: number;
+  if (imageSize) {
+    imgW = imageSize.width;
+    imgH = imageSize.height;
+  } else {
+    const info = await ImageManipulator.manipulateAsync(uri, []);
+    imgW = info.width;
+    imgH = info.height;
   }
-  const lines: string[] = await TextRecognition.recognize(imageUri);
-  return parseSetAndNumber(lines.join('\n'));
+
+  onProgress?.({ step: 'corners_detected', corners, imageW: imgW, imageH: imgH });
+
+  const cardWidthPx = Math.sqrt(
+    Math.pow((corners.bottomRight.x - corners.bottomLeft.x) * imgW, 2) +
+    Math.pow((corners.bottomRight.y - corners.bottomLeft.y) * imgH, 2)
+  );
+  const cardHeightPx = Math.sqrt(
+    Math.pow((corners.bottomLeft.x - corners.topLeft.x) * imgW, 2) +
+    Math.pow((corners.bottomLeft.y - corners.topLeft.y) * imgH, 2)
+  );
+
+  // Strategy 1: bottom-left crop (collector number + set code)
+  // Extend 6% past the detected corner downward — Vision corners land slightly
+  // inside the card frame, which clips the bottom text line on borderless cards.
+  const blOriginX = clamp(Math.floor(corners.bottomLeft.x * imgW), 0, imgW - 1);
+  const blOriginY = clamp(Math.floor(corners.bottomLeft.y * imgH - 0.075 * cardHeightPx), 0, imgH - 1);
+  const blWidth   = clamp(Math.ceil(0.45 * cardWidthPx),  1, imgW - blOriginX);
+  const blHeight  = clamp(Math.ceil(0.075 * cardHeightPx), 1, imgH - blOriginY);
+
+  const blCrop = await ImageManipulator.manipulateAsync(uri, [
+    { crop: { originX: blOriginX, originY: blOriginY, width: blWidth, height: blHeight } },
+  ]);
+  const blText = await runOcr(blCrop.uri);
+  onProgress?.({ step: 'bl_ocr_done', blText });
+  const parsed = parseSetAndNumber(blText);
+
+  if (parsed) {
+    try {
+      const card = await fetchCardBySetNumber(parsed.setCode, parsed.collectorNumber);
+      return { strategy: 'set_number', card, corners, imageW: imgW, imageH: imgH, ocrText: blText, blText };
+    } catch {
+      // Scryfall 404 or network error — fall through to name strategy
+    }
+  }
+
+  // Strategy 2: name crop (top-left region)
+  const tlOriginX = clamp(Math.floor(corners.topLeft.x * imgW), 0, imgW - 1);
+  const tlOriginY = clamp(Math.floor(corners.topLeft.y * imgH), 0, imgH - 1);
+  const tlWidth   = clamp(Math.ceil(0.65 * cardWidthPx),  1, imgW - tlOriginX);
+  const tlHeight  = clamp(Math.ceil(0.12 * cardHeightPx), 1, imgH - tlOriginY);
+
+  const tlCrop = await ImageManipulator.manipulateAsync(uri, [
+    { crop: { originX: tlOriginX, originY: tlOriginY, width: tlWidth, height: tlHeight } },
+  ]);
+  const tlText = await runOcr(tlCrop.uri);
+  onProgress?.({ step: 'name_ocr_done', nameText: tlText });
+
+  const nameLine = tlText
+    .split('\n')
+    .find(l => l.trim().length > 0 && !/^\d+$/.test(l.trim()));
+
+  if (!nameLine) throw new Error('No text found in name region');
+
+  const card = await fetchCardByName(nameLine.trim());
+  return { strategy: 'name', card, corners, imageW: imgW, imageH: imgH, ocrText: tlText, blText };
 }

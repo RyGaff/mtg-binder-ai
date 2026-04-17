@@ -1,0 +1,35 @@
+apply plugin: 'com.android.library'
+apply plugin: 'kotlin-android'
+apply plugin: 'expo-module'
+
+android {
+    compileSdk 35
+    namespace 'expo.modules.carddetector'
+
+    defaultConfig {
+        minSdk 24
+        externalNativeBuild {
+            cmake {
+                cppFlags "-std=c++17"
+                arguments "-DANDROID_STL=c++_shared"
+            }
+        }
+    }
+
+    buildFeatures {
+        prefab true   // Required for OpenCV Maven AAR C++ headers
+    }
+
+    externalNativeBuild {
+        cmake {
+            path "src/main/cpp/CMakeLists.txt"
+            version "3.22.1"
+        }
+    }
+}
+
+dependencies {
+    implementation 'org.opencv:opencv:4.9.0'
+    implementation "org.jetbrains.kotlin:kotlin-stdlib-jdk7:$kotlin_version"
+    implementation 'com.mrousavy.camera:react-native-vision-camera:4.+'
+}

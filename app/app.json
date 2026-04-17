@@ -11,9 +11,9 @@
       "expo-router",
       "expo-sqlite",
       [
-        "expo-camera",
+        "react-native-vision-camera",
         {
-          "cameraPermission": "Allow MTG Binder to access your camera to scan cards."
+          "cameraPermissionText": "Allow MTG Binder to access your camera to scan cards."
         }
       ]
     ],

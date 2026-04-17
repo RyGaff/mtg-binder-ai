@@ -34,6 +34,9 @@ export async function getEmbeddingMap(): Promise<EmbeddingIndex> {
     cachedIndex = index;
     pendingLoad = null;
     return index;
+  }).catch(err => {
+    pendingLoad = null; // allow retry on next call
+    throw err;
   });
   return pendingLoad;
 }

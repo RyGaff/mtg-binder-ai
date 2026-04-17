@@ -54,7 +54,7 @@ export const useStore = create<Store>()(
       recentScans: [],
       addRecentScan: (card) =>
         set((state) => ({
-          recentScans: [card, ...state.recentScans].slice(0, 10),
+          recentScans: [card, ...state.recentScans.filter(c => c.scryfall_id !== card.scryfall_id)].slice(0, 10),
         })),
       embeddingStatus: 'idle',
       setEmbeddingStatus: (embeddingStatus) => set({ embeddingStatus }),

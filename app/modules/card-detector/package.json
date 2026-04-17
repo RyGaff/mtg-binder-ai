@@ -1,0 +1,9 @@
+{
+  "name": "card-detector",
+  "version": "1.0.0",
+  "description": "OpenCV card corner detection",
+  "main": "src/index",
+  "peerDependencies": {
+    "expo-modules-core": "*"
+  }
+}

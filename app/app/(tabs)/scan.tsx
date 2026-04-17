@@ -6,55 +6,226 @@ import {
   TouchableOpacity,
   StyleSheet,
   Animated,
-  ScrollView,
+  LayoutChangeEvent,
 } from 'react-native';
-import { CameraView, useCameraPermissions } from 'expo-camera';
+import { Camera, useCameraDevice, useCameraPermission, useFrameProcessor } from 'react-native-vision-camera';
+import type { Frame } from 'react-native-vision-camera';
+import { useSharedValue, runOnJS } from 'react-native-reanimated';
 import * as ImagePicker from 'expo-image-picker';
-import { File, Paths } from 'expo-file-system';
-import { useRef, useState, useEffect, useCallback } from 'react';
+import { useRef, useState, useCallback } from 'react';
 import { useRouter } from 'expo-router';
-import { parseSetAndNumber } from '../../src/scanner/ocr';
-import { fetchCardBySetNumber } from '../../src/api/scryfall';
+import { scanCard } from '../../src/scanner/ocr';
 import { upsertCard } from '../../src/db/cards';
 import { useStore } from '../../src/store/useStore';
 import { useTheme } from '../../src/theme/useTheme';
+import type { CardCorners } from '../../modules/card-detector/src';
+import { detectCardCornersInFrame } from '../../modules/card-detector/src';
 
 type ScanPhase =
   | { status: 'idle' }
   | { status: 'scanning' }
-  | { status: 'ocr_raw'; text: string }
-  | { status: 'parsed'; setCode: string; collectorNumber: string; rawText: string }
-  | { status: 'fetching'; setCode: string; collectorNumber: string }
+  | { status: 'fetching' }
   | { status: 'error'; message: string };
 
+type DetectionInfo = {
+  corners: CardCorners;
+  imageW:  number;
+  imageH:  number;
+};
+
+// ── Helpers ──────────────────────────────────────────────────────────────────
+
+/** Map a normalized image point to screen space given a view rect and resize mode. */
+function imageToScreen(
+  nx: number, ny: number,
+  imageW: number, imageH: number,
+  viewW: number, viewH: number,
+  cover: boolean,
+): { x: number; y: number } {
+  const scale = cover
+    ? Math.max(viewW / imageW, viewH / imageH)
+    : Math.min(viewW / imageW, viewH / imageH);
+  const dispW = imageW * scale;
+  const dispH = imageH * scale;
+  const offX  = (viewW - dispW) / 2;
+  const offY  = (viewH - dispH) / 2;
+  return { x: offX + nx * dispW, y: offY + ny * dispH };
+}
+
+/** Thin absolute line between two screen points. */
+function OverlayLine({
+  from, to, color, thickness = 2,
+}: { from: {x:number;y:number}; to: {x:number;y:number}; color: string; thickness?: number }) {
+  const dx = to.x - from.x;
+  const dy = to.y - from.y;
+  const len = Math.sqrt(dx * dx + dy * dy);
+  const angle = Math.atan2(dy, dx) * (180 / Math.PI);
+  const cx = (from.x + to.x) / 2;
+  const cy = (from.y + to.y) / 2;
+  return (
+    <View
+      pointerEvents="none"
+      style={{
+        position: 'absolute',
+        left: cx - len / 2,
+        top: cy - thickness / 2,
+        width: len,
+        height: thickness,
+        backgroundColor: color,
+        transform: [{ rotate: `${angle}deg` }],
+      }}
+    />
+  );
+}
+
 /**
- * Resolves a URI to a local file:// path that react-native-text-recognition
- * can read.  The library's Swift layer does `URL(fileURLWithPath:)` after
- * stripping "file://", so ph:// and content:// URIs must be copied to a
- * temp cache file first.
+ * Overlays:
+ *  - Cyan quad showing the detected card boundary
+ *  - Gold rect showing the bottom-left OCR crop region
  */
-async function resolveToFileUri(uri: string): Promise<string> {
-  if (uri.startsWith('file://') || uri.startsWith('/')) {
-    return uri;
-  }
-  const dest = new File(Paths.cache, `scan_ocr_${Date.now()}.jpg`);
-  const source = new File(uri);
-  source.copy(dest);
-  return dest.uri;
+function CardDetectionOverlay({
+  detection,
+  viewW,
+  viewH,
+  cover,
+  ocrText,
+  blText,
+}: {
+  detection: DetectionInfo;
+  viewW: number;
+  viewH: number;
+  cover: boolean;
+  ocrText: string | null;
+  blText: string | null;
+}) {
+  const { corners, imageW, imageH } = detection;
+
+  const proj = (nx: number, ny: number) =>
+    imageToScreen(nx, ny, imageW, imageH, viewW, viewH, cover);
+
+  const tl = proj(corners.topLeft.x,     corners.topLeft.y);
+  const tr = proj(corners.topRight.x,    corners.topRight.y);
+  const br = proj(corners.bottomRight.x, corners.bottomRight.y);
+  const bl = proj(corners.bottomLeft.x,  corners.bottomLeft.y);
+
+  // OCR crop: bottom-left 25% width × 15% height of card (same math as ocr.ts)
+  const cardW = Math.sqrt((br.x - bl.x) ** 2 + (br.y - bl.y) ** 2);
+  const cardH = Math.sqrt((bl.x - tl.x) ** 2 + (bl.y - tl.y) ** 2);
+
+  // Unit vectors along card bottom edge and up the left edge
+  const rightVec = cardW > 0
+    ? { x: (br.x - bl.x) / cardW, y: (br.y - bl.y) / cardW }
+    : { x: 1, y: 0 };
+  const upVec = cardH > 0
+    ? { x: (tl.x - bl.x) / cardH, y: (tl.y - bl.y) / cardH }
+    : { x: 0, y: -1 };
+
+  const ocrW = 0.45 * cardW;
+  const ocrH = 0.075 * cardH;
+
+  // Bottom of OCR region = detected bottom-left corner
+  const ocrBL = { x: bl.x, y: bl.y };
+  const ocrBR = { x: ocrBL.x + rightVec.x * ocrW, y: ocrBL.y + rightVec.y * ocrW };
+  const ocrTL = { x: ocrBL.x + upVec.x * ocrH,    y: ocrBL.y + upVec.y * ocrH };
+  const ocrTR = { x: ocrTL.x + rightVec.x * ocrW,  y: ocrTL.y + rightVec.y * ocrW };
+
+  return (
+    <>
+      {/* Card quad */}
+      <OverlayLine from={tl} to={tr} color="rgba(0,220,220,0.9)" />
+      <OverlayLine from={tr} to={br} color="rgba(0,220,220,0.9)" />
+      <OverlayLine from={br} to={bl} color="rgba(0,220,220,0.9)" />
+      <OverlayLine from={bl} to={tl} color="rgba(0,220,220,0.9)" />
+
+      {/* OCR region (bottom-left) */}
+      <OverlayLine from={ocrTL} to={ocrTR} color="rgba(255,215,0,0.95)" thickness={2} />
+      <OverlayLine from={ocrTR} to={ocrBR} color="rgba(255,215,0,0.95)" thickness={2} />
+      <OverlayLine from={ocrBR} to={ocrBL} color="rgba(255,215,0,0.95)" thickness={2} />
+      <OverlayLine from={ocrBL} to={ocrTL} color="rgba(255,215,0,0.95)" thickness={2} />
+
+      {/* BL crop text — always shown next to the gold box */}
+      {blText != null && (
+        <View
+          pointerEvents="none"
+          style={{
+            position: 'absolute',
+            left: ocrTR.x + 6,
+            top: (ocrTL.y + ocrBL.y) / 2 - 30,
+            maxWidth: 170,
+            backgroundColor: 'rgba(0,0,0,0.72)',
+            paddingHorizontal: 6,
+            paddingVertical: 4,
+            borderRadius: 4,
+            borderLeftWidth: 2,
+            borderLeftColor: 'rgba(255,215,0,0.85)',
+          }}
+        >
+          <Text style={{ color: 'rgba(255,215,0,0.9)', fontSize: 9, fontWeight: '700', letterSpacing: 0.8, marginBottom: 2 }}>
+            BL CROP
+          </Text>
+          <Text style={{ color: 'rgba(255,255,255,0.85)', fontSize: 10, fontFamily: 'monospace', lineHeight: 14 }}>
+            {blText || '(empty)'}
+          </Text>
+        </View>
+      )}
+      {/* Winning-strategy text — shown above card top edge when different from blText */}
+      {ocrText != null && ocrText !== blText && (
+        <View
+          pointerEvents="none"
+          style={{
+            position: 'absolute',
+            left: tl.x,
+            top: tl.y - 52,
+            maxWidth: 200,
+            backgroundColor: 'rgba(0,0,0,0.72)',
+            paddingHorizontal: 6,
+            paddingVertical: 4,
+            borderRadius: 4,
+            borderLeftWidth: 2,
+            borderLeftColor: 'rgba(0,220,220,0.85)',
+          }}
+        >
+          <Text style={{ color: 'rgba(0,220,220,0.9)', fontSize: 9, fontWeight: '700', letterSpacing: 0.8, marginBottom: 2 }}>
+            NAME CROP
+          </Text>
+          <Text style={{ color: 'rgba(255,255,255,0.85)', fontSize: 10, fontFamily: 'monospace', lineHeight: 14 }}>
+            {ocrText}
+          </Text>
+        </View>
+      )}
+    </>
+  );
 }
 
-async function runOcr(uri: string): Promise<string> {
-  const TextRecognition = require('react-native-text-recognition').default;
-  if (!TextRecognition || typeof TextRecognition.recognize !== 'function') {
-    throw new Error(
-      'OCR module is not available. Rebuild the app with `expo run:ios` to link native dependencies.'
-    );
-  }
-  const resolvedUri = await resolveToFileUri(uri);
-  const lines: string[] = await TextRecognition.recognize(resolvedUri);
-  return lines.join('\n');
+// ── Frame processor helpers (worklets) ────────────────────────────────────────
+
+const SMOOTH_ALPHA = 0.35;
+const STABLE_THRESHOLD = 0.015;
+const STABLE_FRAMES = 8;
+const MISS_FRAMES = 5;
+
+function emaCorners(prev: CardCorners, next: CardCorners): CardCorners {
+  'worklet';
+  const lerp = (a: number, b: number) => a + SMOOTH_ALPHA * (b - a);
+  return {
+    topLeft:     { x: lerp(prev.topLeft.x,     next.topLeft.x),     y: lerp(prev.topLeft.y,     next.topLeft.y) },
+    topRight:    { x: lerp(prev.topRight.x,    next.topRight.x),    y: lerp(prev.topRight.y,    next.topRight.y) },
+    bottomRight: { x: lerp(prev.bottomRight.x, next.bottomRight.x), y: lerp(prev.bottomRight.y, next.bottomRight.y) },
+    bottomLeft:  { x: lerp(prev.bottomLeft.x,  next.bottomLeft.x),  y: lerp(prev.bottomLeft.y,  next.bottomLeft.y) },
+  };
 }
 
+function cornersAreStable(a: CardCorners, b: CardCorners, threshold: number): boolean {
+  'worklet';
+  const pts = ['topLeft', 'topRight', 'bottomRight', 'bottomLeft'] as const;
+  for (const k of pts) {
+    if (Math.abs(a[k].x - b[k].x) > threshold) return false;
+    if (Math.abs(a[k].y - b[k].y) > threshold) return false;
+  }
+  return true;
+}
+
+// ── Sub-components ────────────────────────────────────────────────────────────
 
 function parsePrice(pricesJson: string): string {
   try {
@@ -66,77 +237,43 @@ function parsePrice(pricesJson: string): string {
   }
 }
 
-function OcrDebugPanel({ phase, ocrText }: { phase: ScanPhase; ocrText: string }) {
-  // Visible during all active phases (hide only on idle)
+function OcrDebugPanel({
+  phase,
+  strategy,
+}: {
+  phase:    ScanPhase;
+  strategy: 'set_number' | 'name' | null;
+}) {
   if (phase.status === 'idle') return null;
 
-  const allLines = ocrText ? ocrText.split('\n') : [];
+  const strategyLabel = strategy === 'set_number'
+    ? 'SET + NUMBER'
+    : strategy === 'name'
+    ? 'NAME FALLBACK'
+    : null;
 
-  let parseSummary: string | null = null;
-  let parseSuccess = false;
-
-  if (phase.status === 'scanning') {
-    parseSummary = allLines.length > 0 ? 'No set/number found yet' : null;
-  } else if (phase.status === 'ocr_raw') {
-    parseSummary = 'Parsing…';
-  } else if (phase.status === 'parsed') {
-    parseSummary = `Set: ${phase.setCode.toUpperCase()}  #${phase.collectorNumber}`;
-    parseSuccess = true;
-  } else if (phase.status === 'fetching') {
-    parseSummary = `Set: ${phase.setCode.toUpperCase()}  #${phase.collectorNumber}`;
-    parseSuccess = true;
-  } else if (phase.status === 'error') {
-    parseSummary = phase.message;
-    parseSuccess = false;
-  }
-
-  const totalLines = allLines.length;
-  // Bottom 3 lines are what the parser examined
-  const anchorStart = Math.max(0, totalLines - 3);
+  const statusLabel = (() => {
+    switch (phase.status) {
+      case 'scanning': return 'Detecting card…';
+      case 'fetching': return 'Looking up card…';
+      case 'error':    return phase.message;
+      default:         return null;
+    }
+  })();
 
   return (
     <View style={debugStyles.panel}>
       <Text style={debugStyles.header}>OCR DEBUG</Text>
-
-      {phase.status === 'scanning' && allLines.length === 0 && (
-        <Text style={debugStyles.waiting}>waiting for OCR…</Text>
+      {strategyLabel && (
+        <Text style={debugStyles.strategy}>{strategyLabel}</Text>
       )}
-      {phase.status !== 'scanning' && allLines.length === 0 && (
-        <Text style={debugStyles.waiting}>no text captured</Text>
-      )}
-
-      {allLines.length > 0 && (
-        <ScrollView
-          style={debugStyles.scroll}
-          contentContainerStyle={debugStyles.scrollContent}
-          showsVerticalScrollIndicator={false}
-        >
-          {allLines.map((line, i) => {
-            const isAnchor = i >= anchorStart;
-            return (
-              <Text
-                key={i}
-                style={[debugStyles.line, isAnchor && debugStyles.lineAnchor]}
-              >
-                {isAnchor ? '▶ ' : '  '}
-                {line || ' '}
-              </Text>
-            );
-          })}
-        </ScrollView>
-      )}
-
-      {parseSummary !== null && (
-        <View style={debugStyles.summaryRow}>
-          <Text
-            style={[
-              debugStyles.summary,
-              parseSuccess ? debugStyles.summaryOk : debugStyles.summaryFail,
-            ]}
-          >
-            {parseSummary}
-          </Text>
-        </View>
+      {statusLabel && (
+        <Text style={[
+          debugStyles.status,
+          phase.status === 'error' ? debugStyles.statusError : debugStyles.statusOk,
+        ]}>
+          {statusLabel}
+        </Text>
       )}
     </View>
   );
@@ -158,131 +295,171 @@ function ErrorToast({ message }: { message: string }) {
   );
 }
 
+// ── Main screen ───────────────────────────────────────────────────────────────
+
 export default function ScanScreen() {
   const theme = useTheme();
   const router = useRouter();
-  const [permission, requestPermission] = useCameraPermissions();
+  const device = useCameraDevice('back');
+  const { hasPermission, requestPermission } = useCameraPermission();
+
   const [phase, setPhase] = useState<ScanPhase>({ status: 'idle' });
-  const [ocrText, setOcrText] = useState<string>('');
-  const [isActive, setIsActive] = useState(true);
+  const [scanStrategy, setScanStrategy] = useState<'set_number' | 'name' | null>(null);
+  const [ocrText, setOcrText] = useState<string | null>(null);
+  const [blText, setBlText] = useState<string | null>(null);
+  const [detection, setDetection] = useState<DetectionInfo | null>(null);
+  const [overlayLayout, setOverlayLayout] = useState<{ width: number; height: number } | null>(null);
   const [pickedImageUri, setPickedImageUri] = useState<string | null>(null);
   const [successCard, setSuccessCard] = useState<string | null>(null);
   const [panelOpen, setPanelOpen] = useState(false);
-  const cameraRef = useRef<CameraView>(null);
+  const cameraRef = useRef<Camera>(null);
   const { setLastScannedId, addRecentScan, recentScans } = useStore();
-  const scanLoopRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const successTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
-  const panelAnim = useRef(new Animated.Value(0)).current;
+  // Worklet-safe shared values — written on the frame processor thread
+  const smoothedCornersWv = useSharedValue<CardCorners | null>(null);
+  const stableCount = useSharedValue(0);
+  const missCount = useSharedValue(0);
+  const isCapturing = useSharedValue(false);
+
+  const PANEL_MAX_HEIGHT = 320;
+  const panelHeightAnim = useRef(new Animated.Value(0)).current;
 
   const openPanel = useCallback(() => {
     setPanelOpen(true);
-    Animated.timing(panelAnim, {
-      toValue: 1,
+    Animated.timing(panelHeightAnim, {
+      toValue: PANEL_MAX_HEIGHT,
       duration: 250,
-      useNativeDriver: true,
+      useNativeDriver: false,
     }).start();
-  }, [panelAnim]);
+  }, [panelHeightAnim]);
 
   const closePanel = useCallback(() => {
-    Animated.timing(panelAnim, {
+    Animated.timing(panelHeightAnim, {
       toValue: 0,
       duration: 200,
-      useNativeDriver: true,
+      useNativeDriver: false,
     }).start(() => setPanelOpen(false));
-  }, [panelAnim]);
+  }, [panelHeightAnim]);
 
+  // Stops any in-flight capture and clears detection state. Call before
+  // navigating away or switching to the photo library.
   const stopScanning = useCallback(() => {
-    setIsActive(false);
-    if (scanLoopRef.current) {
-      clearTimeout(scanLoopRef.current);
-      scanLoopRef.current = null;
-    }
-    if (successTimerRef.current) {
-      clearTimeout(successTimerRef.current);
-      successTimerRef.current = null;
-    }
-  }, []);
+    isCapturing.value = false;
+    smoothedCornersWv.value = null;
+    stableCount.value = 0;
+    missCount.value = 0;
+    setDetection(null);
+  }, [isCapturing, smoothedCornersWv, stableCount, missCount]);
 
-  const processUri = useCallback(async (uri: string, reschedule: boolean) => {
+  const triggerOcr = useCallback(async () => {
+    if (!cameraRef.current) { isCapturing.value = false; return; }
     try {
-      const rawText = await runOcr(uri);
-      setOcrText(rawText);
-      setPhase({ status: 'ocr_raw', text: rawText });
-
-      const parsed = parseSetAndNumber(rawText);
-      if (!parsed) {
-        if (reschedule) {
-          scanLoopRef.current = setTimeout(runScanCycle, 1200);
-        } else {
-          setPhase({ status: 'error', message: 'No card info found in image' });
+      setPhase({ status: 'scanning' });
+      setOcrText(null);
+      setBlText(null);
+      const photo = await cameraRef.current.takePhoto({ qualityPrioritization: 'speed' });
+      const uri = `file://${photo.path}`;
+      const result = await scanCard(uri, (p) => {
+        if (p.step === 'corners_detected') {
+          setDetection({ corners: p.corners, imageW: p.imageW, imageH: p.imageH });
+        } else if (p.step === 'bl_ocr_done') {
+          setBlText(p.blText);
+        } else if (p.step === 'name_ocr_done') {
+          setOcrText(p.nameText);
         }
-        return;
-      }
-
-      setPhase({ status: 'parsed', ...parsed, rawText });
-      setPhase({ status: 'fetching', setCode: parsed.setCode, collectorNumber: parsed.collectorNumber });
-      const card = await fetchCardBySetNumber(parsed.setCode, parsed.collectorNumber);
-      upsertCard(card);
-      addRecentScan(card);
-      setLastScannedId(card.scryfall_id);
+      }, { width: photo.width, height: photo.height });
+      upsertCard(result.card);
+      addRecentScan(result.card);
+      setLastScannedId(result.card.scryfall_id);
+      setScanStrategy(result.strategy);
+      setOcrText(result.ocrText);
+      setSuccessCard(result.card.name);
       setPhase({ status: 'idle' });
-      setSuccessCard(card.name);
-      successTimerRef.current = setTimeout(() => {
-        successTimerRef.current = null;
-        setSuccessCard(null);
-        setPickedImageUri(null);
-        if (reschedule) runScanCycle();
-      }, 1500);
+      await new Promise<void>(resolve => setTimeout(resolve, 1500));
+      setSuccessCard(null);
     } catch (e) {
-      const msg = e instanceof Error ? e.message : 'Unknown error';
-      setPhase({ status: 'error', message: msg });
+      console.warn('[scan]', e instanceof Error ? e.message : e);
+      setPhase({ status: 'idle' });
+    } finally {
+      isCapturing.value = false;
     }
-  }, [setLastScannedId, addRecentScan]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [addRecentScan, setLastScannedId, isCapturing]);
 
-  const runScanCycle = useCallback(async () => {
-    if (!cameraRef.current) return;
-    setOcrText('');
-    setPhase({ status: 'scanning' });
+  const frameProcessor = useFrameProcessor((frame: Frame) => {
+    'worklet';
+    if (isCapturing.value) return;
 
-    const photo = await cameraRef.current.takePictureAsync({ quality: 0.6 });
-    if (!photo) {
-      setPhase({ status: 'error', message: 'Camera failed to capture' });
-      return;
+    const raw = detectCardCornersInFrame(frame);
+
+    if (raw) {
+      const prev = smoothedCornersWv.value;
+      const smoothed = prev ? emaCorners(prev, raw) : raw;
+      const stable = prev ? cornersAreStable(prev, smoothed, STABLE_THRESHOLD) : false;
+
+      smoothedCornersWv.value = smoothed;
+      missCount.value = 0;
+      stableCount.value = stable ? stableCount.value + 1 : 0;
+
+      runOnJS(setDetection)({ corners: smoothed, imageW: frame.width, imageH: frame.height });
+
+      if (stableCount.value >= STABLE_FRAMES) {
+        stableCount.value = 0;
+        isCapturing.value = true;
+        runOnJS(triggerOcr)();
+      }
+    } else {
+      missCount.value += 1;
+      if (missCount.value >= MISS_FRAMES) {
+        smoothedCornersWv.value = null;
+        missCount.value = 0;
+        runOnJS(setDetection)(null);
+      }
     }
-
-    await processUri(photo.uri, true);
-  }, [processUri]);
+  }, [isCapturing, smoothedCornersWv, stableCount, missCount, triggerOcr]);
 
   const pickFromLibrary = useCallback(async () => {
-    stopScanning();
-    const result = await ImagePicker.launchImageLibraryAsync({
-      mediaTypes: ['images'],
-      quality: 1,
-    });
-    if (result.canceled || !result.assets[0]) return;
+    isCapturing.value = false;
+    smoothedCornersWv.value = null;
+    const picked = await ImagePicker.launchImageLibraryAsync({ mediaTypes: ['images'], quality: 1 });
+    if (picked.canceled || !picked.assets[0]) return;
 
-    const uri = result.assets[0].uri;
-    setPickedImageUri(uri);
+    const asset = picked.assets[0];
+    setDetection(null);
+    setPickedImageUri(asset.uri);
+    setOcrText(null);
+    setBlText(null);
     setPhase({ status: 'scanning' });
-    await processUri(uri, false);
-  }, [stopScanning, processUri]);
 
-  useEffect(() => {
-    if (isActive) {
-      runScanCycle();
+    try {
+      const result = await scanCard(asset.uri, (p) => {
+        if (p.step === 'corners_detected') {
+          setDetection({ corners: p.corners, imageW: p.imageW, imageH: p.imageH });
+        } else if (p.step === 'bl_ocr_done') {
+          setBlText(p.blText);
+        } else if (p.step === 'name_ocr_done') {
+          setOcrText(p.nameText);
+        }
+      });
+      upsertCard(result.card);
+      addRecentScan(result.card);
+      setLastScannedId(result.card.scryfall_id);
+      setScanStrategy(result.strategy);
+      setOcrText(result.ocrText);
+      setSuccessCard(result.card.name);
+      setPhase({ status: 'idle' });
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : 'Unknown error';
+      console.warn('[scan] library:', msg);
+      setPhase({ status: 'error', message: msg });
     }
-    return () => {
-      if (scanLoopRef.current) clearTimeout(scanLoopRef.current);
-      if (successTimerRef.current) clearTimeout(successTimerRef.current);
-    };
-  }, [isActive]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [addRecentScan, setLastScannedId, isCapturing, smoothedCornersWv]);
 
-  if (!permission) {
-    return <View style={[styles.screen, { backgroundColor: theme.bg }]} />;
-  }
+  const handleOverlayLayout = useCallback((e: LayoutChangeEvent) => {
+    const { width, height } = e.nativeEvent.layout;
+    setOverlayLayout({ width, height });
+  }, []);
 
-  if (!permission.granted) {
+  if (!hasPermission) {
     return (
       <View style={[styles.center, { backgroundColor: theme.bg }]}>
         <Text style={[styles.permText, { color: theme.textSecondary }]}>
@@ -299,19 +476,36 @@ export default function ScanScreen() {
     );
   }
 
+  if (!device) {
+    return <View style={[styles.screen, { backgroundColor: theme.bg }]} />;
+  }
+
   const statusLabel = (() => {
     switch (phase.status) {
-      case 'idle': return isActive ? 'Point camera at a card' : 'Tap to start scanning';
-      case 'scanning': return 'Looking for card…';
-      case 'ocr_raw': return 'Reading text…';
-      case 'parsed': return `Found: ${phase.setCode.toUpperCase()} #${phase.collectorNumber}`;
-      case 'fetching': return `Looking up ${phase.setCode.toUpperCase()} #${phase.collectorNumber}…`;
-      case 'error': return null; // shown as toast instead
+      case 'idle':     return 'Point camera at a card';
+      case 'scanning': return 'Detecting card…';
+      case 'fetching': return 'Looking up card…';
+      case 'error':    return null; // shown as toast instead
     }
   })();
 
   const cameraOverlay = (
-    <View style={styles.overlay} pointerEvents="none">
+    <View
+      style={styles.overlay}
+      pointerEvents="none"
+      onLayout={handleOverlayLayout}
+    >
+      {/* Dynamic detection overlay */}
+      {detection && overlayLayout && (
+        <CardDetectionOverlay
+          detection={detection}
+          viewW={overlayLayout.width}
+          viewH={overlayLayout.height}
+          cover={!pickedImageUri}
+          ocrText={ocrText}
+          blText={blText}
+        />
+      )}
       {/* Status label — bottom center */}
       {statusLabel !== null && (
         <View style={styles.statusBadge}>
@@ -352,28 +546,17 @@ export default function ScanScreen() {
         )}
       </TouchableOpacity>
 
-      {/* Backdrop — closes panel on tap */}
-      {panelOpen && (
-        <TouchableOpacity
-          style={scanStyles.backdrop}
-          onPress={closePanel}
-          activeOpacity={1}
-        />
-      )}
-
-      {/* Slide-down recent scans panel */}
+      {/* Expand-down recent scans panel */}
       <Animated.View
         style={[
           scanStyles.panel,
           {
-            transform: [
-              {
-                translateY: panelAnim.interpolate({
-                  inputRange: [0, 1],
-                  outputRange: [-320, 0],
-                }),
-              },
-            ],
+            height: panelHeightAnim,
+            opacity: panelHeightAnim.interpolate({
+              inputRange: [0, 1],
+              outputRange: [0, 1],
+              extrapolate: 'clamp',
+            }),
           },
         ]}
         pointerEvents={panelOpen ? 'auto' : 'none'}
@@ -410,15 +593,22 @@ export default function ScanScreen() {
           <Image source={{ uri: pickedImageUri }} style={styles.fullScreenImage} resizeMode="contain" />
           {cameraOverlay}
           {/* OCR debug panel inside the fullscreen container so it's unambiguously above the image layer */}
-          <OcrDebugPanel phase={phase} ocrText={ocrText} />
+          <OcrDebugPanel phase={phase} strategy={scanStrategy} />
         </View>
       ) : (
         <>
-          <CameraView ref={cameraRef} style={styles.camera} facing="back">
+          <Camera
+            ref={cameraRef}
+            style={styles.camera}
+            device={device}
+            isActive={!pickedImageUri}
+            frameProcessor={frameProcessor}
+            photo={true}
+          >
             {cameraOverlay}
-          </CameraView>
+          </Camera>
           {/* OCR debug panel — absolute, bottom of screen, above footer */}
-          <OcrDebugPanel phase={phase} ocrText={ocrText} />
+          <OcrDebugPanel phase={phase} strategy={scanStrategy} />
         </>
       )}
 
@@ -434,16 +624,9 @@ export default function ScanScreen() {
         <TouchableOpacity
           style={[styles.pill, styles.pillSecondary, { borderColor: theme.border }]}
           onPress={pickFromLibrary}
-          activeOpacity={0.7}
+          activeOpacity={0.9}
         >
           <Text style={[styles.pillText, { color: theme.text }]}>Photo Library</Text>
-        </TouchableOpacity>
-        <TouchableOpacity
-          style={styles.textLink}
-          onPress={() => { stopScanning(); router.push('/search'); }}
-          activeOpacity={0.6}
-        >
-          <Text style={[styles.textLinkText, { color: theme.textSecondary }]}>Search instead</Text>
         </TouchableOpacity>
       </View>
     </View>
@@ -499,7 +682,7 @@ const styles = StyleSheet.create({
   // Error toast pinned to top
   errorToast: {
     position: 'absolute',
-    top: 56,
+    top: 12,
     left: 20,
     right: 20,
     zIndex: 100,
@@ -545,15 +728,12 @@ const styles = StyleSheet.create({
   },
 });
 
-// Separate stylesheet for the OCR debug panel so it doesn't pollute the main styles object.
 const debugStyles = StyleSheet.create({
   panel: {
     position: 'absolute',
-    // Sits above the footer (footer is ~88px: padding 24 + content ~32 + paddingBottom 32)
     bottom: 96,
     left: 12,
     right: 12,
-    maxHeight: 220,
     backgroundColor: 'rgba(0,0,0,0.78)',
     borderRadius: 8,
     borderWidth: StyleSheet.hairlineWidth,
@@ -569,51 +749,31 @@ const debugStyles = StyleSheet.create({
     marginBottom: 6,
     fontFamily: 'monospace',
   },
-  waiting: {
-    color: 'rgba(255,255,255,0.4)',
+  strategy: {
+    color: '#4ecdc4',
+    fontSize: 11,
+    fontWeight: '700' as const,
+    fontFamily: 'monospace',
+    marginBottom: 4,
+    letterSpacing: 0.8,
+  },
+  status: {
     fontSize: 11,
     fontFamily: 'monospace',
-    fontStyle: 'italic',
   },
-  scroll: {
-    maxHeight: 130,
+  statusOk: {
+    color: 'rgba(255,255,255,0.6)',
   },
-  scrollContent: {
-    gap: 1,
-  },
-  line: {
-    color: 'rgba(255,255,255,0.5)',
-    fontSize: 11,
-    fontFamily: 'monospace',
-    lineHeight: 17,
-  },
-  // The bottom 3 lines that the parser actually examined
-  lineAnchor: {
-    color: '#e8d87a',
-  },
-  summaryRow: {
-    marginTop: 8,
-    borderTopWidth: StyleSheet.hairlineWidth,
-    borderTopColor: 'rgba(255,255,255,0.15)',
-    paddingTop: 6,
-  },
-  summary: {
-    fontSize: 11,
-    fontFamily: 'monospace',
-    fontWeight: '600',
-  },
-  summaryOk: {
-    color: '#66bb6a',
-  },
-  summaryFail: {
+  statusError: {
     color: '#ef5350',
+    fontWeight: '600' as const,
   },
 });
 
 const scanStyles = StyleSheet.create({
   successBadge: {
     position: 'absolute',
-    top: 56,
+    top: 12,
     alignSelf: 'center',
     zIndex: 100,
     backgroundColor: 'rgba(30,180,100,0.92)',
@@ -634,7 +794,7 @@ const scanStyles = StyleSheet.create({
   },
   recentBtn: {
     position: 'absolute',
-    top: 56,
+    top: 25,
     right: 16,
     zIndex: 50,
     width: 44,
@@ -669,22 +829,13 @@ const scanStyles = StyleSheet.create({
     fontSize: 10,
     fontWeight: '700',
   },
-  backdrop: {
-    position: 'absolute',
-    top: 0,
-    left: 0,
-    right: 0,
-    bottom: 0,
-    zIndex: 48,
-  },
   panel: {
     position: 'absolute',
-    top: 108,
+    top: 77,
     left: 12,
     right: 12,
-    maxHeight: 320,
     zIndex: 49,
-    backgroundColor: 'rgba(0,0,0,0.88)',
+    backgroundColor: 'rgba(0,0,0,0.77)',
     borderRadius: 12,
     borderWidth: StyleSheet.hairlineWidth,
     borderColor: 'rgba(255,255,255,0.12)',

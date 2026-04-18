@@ -1,9 +1,50 @@
 #import "CardDetectorBridge.h"
 #import <Vision/Vision.h>
 #import <UIKit/UIKit.h>
+#import <VisionCamera/FrameProcessorPlugin.h>
+#import <VisionCamera/FrameProcessorPluginRegistry.h>
+#import <VisionCamera/VisionCameraProxyHolder.h>
+#import <VisionCamera/Frame.h>
+
+// ── ObjC frame processor plugin ──────────────────────────────────────────────
+
+@interface CardDetectorFrameProcessorPlugin : FrameProcessorPlugin
+@end
+
+@implementation CardDetectorFrameProcessorPlugin
+
+- (instancetype)initWithProxy:(VisionCameraProxyHolder*)proxy withOptions:(NSDictionary*)options {
+    return [super initWithProxy:proxy withOptions:options];
+}
+
+- (id)callback:(Frame*)frame withArguments:(NSDictionary*)arguments {
+    return [CardDetectorBridge detectCornersFromSampleBuffer:frame.buffer];
+}
+
+@end
+
+// ── Registration (called explicitly from CardDetectorModule.swift OnCreate) ──
+
+@implementation CardDetectorBridge (PluginRegistration)
+
++ (void)registerFrameProcessorPlugin {
+    static dispatch_once_t onceToken;
+    dispatch_once(&onceToken, ^{
+        NSLog(@"[CardDetector] Registering detectCardCornersInFrame...");
+        [FrameProcessorPluginRegistry
+            addFrameProcessorPlugin:@"detectCardCornersInFrame"
+                    withInitializer:^FrameProcessorPlugin*(VisionCameraProxyHolder* proxy, NSDictionary* options) {
+            return [[CardDetectorFrameProcessorPlugin alloc] initWithProxy:proxy withOptions:options];
+        }];
+        NSLog(@"[CardDetector] Plugin registered OK");
+    });
+}
+
+@end
+
+// ── Vision helpers ────────────────────────────────────────────────────────────
 
 static NSDictionary<NSString *, NSNumber *> *observationToDict(VNRectangleObservation *obs) {
-    // Vision uses bottom-left origin — flip Y to top-left for JS
     return @{
         @"topLeftX":     @(obs.topLeft.x),
         @"topLeftY":     @(1.0 - obs.topLeft.y),
@@ -26,6 +67,11 @@ static VNDetectRectanglesRequest *makeRectangleRequest(void (^handler)(VNRequest
 }
 
 @implementation CardDetectorBridge
+
++ (void)load {
+    NSLog(@"[CardDetector] +load fired — registering plugin");
+    [self registerFrameProcessorPlugin];
+}
 
 + (nullable NSDictionary<NSString *, NSNumber *> *)detectCornersFromFileURI:(NSString *)uri {
     NSString *path = [uri hasPrefix:@"file://"] ? [uri substringFromIndex:7] : uri;
@@ -51,7 +97,6 @@ static VNDetectRectanglesRequest *makeRectangleRequest(void (^handler)(VNRequest
         if (obs) result = observationToDict(obs);
     });
 
-    // initWithCMSampleBuffer:options: available iOS 14+ (our min is 15.1)
     VNImageRequestHandler *imgHandler = [[VNImageRequestHandler alloc] initWithCMSampleBuffer:sampleBuffer options:@{}];
     [imgHandler performRequests:@[request] error:nil];
     return result;

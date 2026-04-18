@@ -1,6 +1,6 @@
 import { requireNativeModule } from 'expo-modules-core';
 import { VisionCameraProxy } from 'react-native-vision-camera';
-import type { Frame } from 'react-native-vision-camera';
+import type { Frame, FrameProcessorPlugin } from 'react-native-vision-camera';
 
 export type Point = { x: number; y: number }; // normalized 0–1, top-left origin
 
@@ -18,11 +18,6 @@ type RawCorners = {
   bottomLeftX:  number; bottomLeftY:  number;
 };
 
-/**
- * Detects the largest card-shaped rectangle in the image at the given URI.
- * Returns normalized corner coordinates (top-left origin, 0–1 range),
- * or null if no card-shaped contour was found.
- */
 export async function detectCardCorners(imageUri: string): Promise<CardCorners | null> {
   const Native = requireNativeModule('CardDetector');
   const raw: RawCorners | null = await Native.detectCardCorners(imageUri);
@@ -35,17 +30,16 @@ export async function detectCardCorners(imageUri: string): Promise<CardCorners |
   };
 }
 
-const plugin = VisionCameraProxy.initFrameProcessorPlugin('detectCardCornersInFrame', {});
+/** Call once on component mount. Native registers plugin in OnCreate before JS runs. */
+export function initCardDetectorPlugin(): FrameProcessorPlugin | null {
+  const p = VisionCameraProxy.initFrameProcessorPlugin('detectCardCornersInFrame', {}) ?? null;
+  console.log('[CardDetector] plugin:', p == null ? 'NULL - not registered!' : 'OK');
+  return p;
+}
 
-/**
- * Frame processor plugin for react-native-vision-camera v4.
- * Runs on raw camera frames at native speed (~30 fps).
- * Must be called inside a `useFrameProcessor` worklet.
- * Returns normalized corner coordinates or null if no card detected.
- */
-export function detectCardCornersInFrame(frame: Frame): CardCorners | null {
+/** Call inside useFrameProcessor — pass the plugin from initCardDetectorPlugin(). */
+export function detectCardCornersInFrame(frame: Frame, plugin: FrameProcessorPlugin): CardCorners | null {
   'worklet';
-  if (plugin == null) return null;
   const result = plugin.call(frame) as Record<string, number> | null;
   if (!result) return null;
   return {

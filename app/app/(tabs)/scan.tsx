@@ -7,19 +7,21 @@ import {
   StyleSheet,
   Animated,
   LayoutChangeEvent,
+  useWindowDimensions,
 } from 'react-native';
 import { Camera, useCameraDevice, useCameraPermission, useFrameProcessor } from 'react-native-vision-camera';
 import type { Frame } from 'react-native-vision-camera';
-import { useSharedValue, runOnJS } from 'react-native-reanimated';
+import { useSharedValue, useRunOnJS } from 'react-native-worklets-core';
 import * as ImagePicker from 'expo-image-picker';
-import { useRef, useState, useCallback } from 'react';
+import { useRef, useState, useCallback, useEffect } from 'react';
 import { useRouter } from 'expo-router';
 import { scanCard } from '../../src/scanner/ocr';
 import { upsertCard } from '../../src/db/cards';
 import { useStore } from '../../src/store/useStore';
 import { useTheme } from '../../src/theme/useTheme';
 import type { CardCorners } from '../../modules/card-detector/src';
-import { detectCardCornersInFrame } from '../../modules/card-detector/src';
+import { detectCardCornersInFrame, initCardDetectorPlugin } from '../../modules/card-detector/src';
+import type { FrameProcessorPlugin } from 'react-native-vision-camera';
 
 type ScanPhase =
   | { status: 'idle' }
@@ -302,17 +304,33 @@ export default function ScanScreen() {
   const router = useRouter();
   const device = useCameraDevice('back');
   const { hasPermission, requestPermission } = useCameraPermission();
+  const { width: winW, height: winH } = useWindowDimensions();
 
   const [phase, setPhase] = useState<ScanPhase>({ status: 'idle' });
   const [scanStrategy, setScanStrategy] = useState<'set_number' | 'name' | null>(null);
   const [ocrText, setOcrText] = useState<string | null>(null);
   const [blText, setBlText] = useState<string | null>(null);
   const [detection, setDetection] = useState<DetectionInfo | null>(null);
-  const [overlayLayout, setOverlayLayout] = useState<{ width: number; height: number } | null>(null);
+  const [overlayLayout, setOverlayLayout] = useState<{ width: number; height: number }>(() => ({ width: winW, height: winH }));
   const [pickedImageUri, setPickedImageUri] = useState<string | null>(null);
   const [successCard, setSuccessCard] = useState<string | null>(null);
   const [panelOpen, setPanelOpen] = useState(false);
+  const [debugFrameCount, setDebugFrameCount] = useState(0);
+  const [debugDetected, setDebugDetected] = useState(false);
+  const [cardPlugin, setCardPlugin] = useState<FrameProcessorPlugin | null>(null);
   const cameraRef = useRef<Camera>(null);
+
+  useEffect(() => {
+    setCardPlugin(initCardDetectorPlugin());
+  }, []);
+
+  useEffect(() => {
+    if (detection) {
+      console.log('[DetectionDebug] corners:', JSON.stringify(detection.corners));
+      console.log('[DetectionDebug] imageW:', detection.imageW, 'imageH:', detection.imageH);
+      console.log('[DetectionDebug] overlayLayout:', JSON.stringify(overlayLayout));
+    }
+  }, [detection]);
   const { setLastScannedId, addRecentScan, recentScans } = useStore();
 
   // Worklet-safe shared values — written on the frame processor thread
@@ -385,11 +403,23 @@ export default function ScanScreen() {
     }
   }, [addRecentScan, setLastScannedId, isCapturing]);
 
+  const jsSetDetection = useRunOnJS(setDetection, [setDetection]);
+  const jsTriggerOcr = useRunOnJS(triggerOcr, [triggerOcr]);
+  const jsDebugFrame = useRunOnJS(
+    (detected: boolean) => {
+      setDebugFrameCount(n => n + 1);
+      setDebugDetected(detected);
+    },
+    [],
+  );
+
   const frameProcessor = useFrameProcessor((frame: Frame) => {
     'worklet';
+    if (cardPlugin == null) return;
     if (isCapturing.value) return;
 
-    const raw = detectCardCornersInFrame(frame);
+    const raw = detectCardCornersInFrame(frame, cardPlugin);
+    jsDebugFrame(raw != null);
 
     if (raw) {
       const prev = smoothedCornersWv.value;
@@ -400,22 +430,30 @@ export default function ScanScreen() {
       missCount.value = 0;
       stableCount.value = stable ? stableCount.value + 1 : 0;
 
-      runOnJS(setDetection)({ corners: smoothed, imageW: frame.width, imageH: frame.height });
+      // Vision returns corners in portrait-normalized space (iOS embeds device orientation
+      // in CMSampleBuffer). When the buffer is landscape (w > h), swap dimensions so
+      // imageToScreen projects correctly onto the portrait view.
+      const landscape = frame.width > frame.height;
+      jsSetDetection({
+        corners: smoothed,
+        imageW: landscape ? frame.height : frame.width,
+        imageH: landscape ? frame.width : frame.height,
+      });
 
       if (stableCount.value >= STABLE_FRAMES) {
         stableCount.value = 0;
         isCapturing.value = true;
-        runOnJS(triggerOcr)();
+        jsTriggerOcr();
       }
     } else {
       missCount.value += 1;
       if (missCount.value >= MISS_FRAMES) {
         smoothedCornersWv.value = null;
         missCount.value = 0;
-        runOnJS(setDetection)(null);
+        jsSetDetection(null);
       }
     }
-  }, [isCapturing, smoothedCornersWv, stableCount, missCount, triggerOcr]);
+  }, [cardPlugin, isCapturing, smoothedCornersWv, stableCount, missCount, jsTriggerOcr, jsSetDetection]);
 
   const pickFromLibrary = useCallback(async () => {
     isCapturing.value = false;
@@ -489,24 +527,23 @@ export default function ScanScreen() {
     }
   })();
 
-  const cameraOverlay = (
+  // Overlay for picked-image mode (still sits inside the fullScreenImageContainer)
+  const pickedImageOverlay = (
     <View
       style={styles.overlay}
       pointerEvents="none"
       onLayout={handleOverlayLayout}
     >
-      {/* Dynamic detection overlay */}
-      {detection && overlayLayout && (
+      {detection && (
         <CardDetectionOverlay
           detection={detection}
           viewW={overlayLayout.width}
           viewH={overlayLayout.height}
-          cover={!pickedImageUri}
+          cover={false}
           ocrText={ocrText}
           blText={blText}
         />
       )}
-      {/* Status label — bottom center */}
       {statusLabel !== null && (
         <View style={styles.statusBadge}>
           <Text style={styles.statusText}>{statusLabel}</Text>
@@ -517,6 +554,12 @@ export default function ScanScreen() {
 
   return (
     <View style={styles.screen}>
+      {/* Temporary debug — remove after diagnosis */}
+      <View style={{ position: 'absolute', top: 60, left: 10, zIndex: 999, backgroundColor: 'rgba(0,0,0,0.8)', padding: 6, borderRadius: 6 }}>
+        <Text style={{ color: debugDetected ? '#0f0' : '#ff0', fontSize: 11, fontFamily: 'monospace' }}>
+          {'frames: ' + debugFrameCount + '\ndetected: ' + (debugDetected ? 'YES' : 'no')}
+        </Text>
+      </View>
       {/* Error toast — absolute, pinned to top */}
       {phase.status === 'error' && (
         <ErrorToast message={phase.message} />
@@ -591,7 +634,7 @@ export default function ScanScreen() {
       {pickedImageUri ? (
         <View style={styles.fullScreenImageContainer}>
           <Image source={{ uri: pickedImageUri }} style={styles.fullScreenImage} resizeMode="contain" />
-          {cameraOverlay}
+          {pickedImageOverlay}
           {/* OCR debug panel inside the fullscreen container so it's unambiguously above the image layer */}
           <OcrDebugPanel phase={phase} strategy={scanStrategy} />
         </View>
@@ -604,9 +647,29 @@ export default function ScanScreen() {
             isActive={!pickedImageUri}
             frameProcessor={frameProcessor}
             photo={true}
+          />
+          {/* Detection overlay — sibling of Camera (not child) so it isn't clipped by the native view */}
+          <View
+            style={styles.cameraOverlay}
+            pointerEvents="none"
+            onLayout={handleOverlayLayout}
           >
-            {cameraOverlay}
-          </Camera>
+            {detection && (
+              <CardDetectionOverlay
+                detection={detection}
+                viewW={overlayLayout.width}
+                viewH={overlayLayout.height}
+                cover
+                ocrText={ocrText}
+                blText={blText}
+              />
+            )}
+            {statusLabel !== null && (
+              <View style={styles.statusBadge}>
+                <Text style={styles.statusText}>{statusLabel}</Text>
+              </View>
+            )}
+          </View>
           {/* OCR debug panel — absolute, bottom of screen, above footer */}
           <OcrDebugPanel phase={phase} strategy={scanStrategy} />
         </>
@@ -663,6 +726,12 @@ const styles = StyleSheet.create({
 
   // Camera / image
   camera: { flex: 1 },
+  cameraOverlay: {
+    ...StyleSheet.absoluteFillObject,
+    alignItems: 'center' as const,
+    justifyContent: 'center' as const,
+    paddingBottom: 80,
+  },
   fullScreenImageContainer: {
     ...StyleSheet.absoluteFillObject,
     zIndex: 10,

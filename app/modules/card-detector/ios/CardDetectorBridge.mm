@@ -1,10 +1,64 @@
 #import "CardDetectorBridge.h"
-#import <Vision/Vision.h>
 #import <UIKit/UIKit.h>
+#import <CoreVideo/CoreVideo.h>
 #import <VisionCamera/FrameProcessorPlugin.h>
 #import <VisionCamera/FrameProcessorPluginRegistry.h>
 #import <VisionCamera/VisionCameraProxyHolder.h>
 #import <VisionCamera/Frame.h>
+#include "card_detector.h"
+
+// ── cv::Mat helpers ───────────────────────────────────────────────────────────
+
+static cv::Mat matFromUIImage(UIImage *image) {
+    CGImageRef cgImage = image.CGImage;
+    size_t w = CGImageGetWidth(cgImage);
+    size_t h = CGImageGetHeight(cgImage);
+    cv::Mat rgba((int)h, (int)w, CV_8UC4);
+    CGColorSpaceRef cs = CGColorSpaceCreateDeviceRGB();
+    CGContextRef ctx = CGBitmapContextCreate(
+        rgba.data, w, h, 8, rgba.step[0], cs,
+        kCGImageAlphaNoneSkipLast | kCGBitmapByteOrderDefault
+    );
+    CGColorSpaceRelease(cs);
+    CGContextDrawImage(ctx, CGRectMake(0, 0, w, h), cgImage);
+    CGContextRelease(ctx);
+    cv::Mat bgr;
+    cv::cvtColor(rgba, bgr, cv::COLOR_RGBA2BGR);
+    return bgr;
+}
+
+static cv::Mat grayMatFromSampleBuffer(CMSampleBufferRef sampleBuffer) {
+    CVPixelBufferRef pixelBuffer = CMSampleBufferGetImageBuffer(sampleBuffer);
+    CVPixelBufferLockBaseAddress(pixelBuffer, kCVPixelBufferLock_ReadOnly);
+    void *base = CVPixelBufferGetBaseAddressOfPlane(pixelBuffer, 0);
+    size_t w   = CVPixelBufferGetWidthOfPlane(pixelBuffer, 0);
+    size_t h   = CVPixelBufferGetHeightOfPlane(pixelBuffer, 0);
+    cv::Mat gray((int)h, (int)w, CV_8UC1, base);
+    cv::Mat grayClone = gray.clone();
+    CVPixelBufferUnlockBaseAddress(pixelBuffer, kCVPixelBufferLock_ReadOnly);
+    return grayClone;
+}
+
+// ── Dict builder ─────────────────────────────────────────────────────────────
+
+static NSDictionary<NSString *, id> *cornersToDict(
+    const CardCorners& c,
+    NSString * _Nullable rectifiedUri
+) {
+    NSMutableDictionary *d = [@{
+        @"topLeftX":     @(c.topLeftX),
+        @"topLeftY":     @(c.topLeftY),
+        @"topRightX":    @(c.topRightX),
+        @"topRightY":    @(c.topRightY),
+        @"bottomRightX": @(c.bottomRightX),
+        @"bottomRightY": @(c.bottomRightY),
+        @"bottomLeftX":  @(c.bottomLeftX),
+        @"bottomLeftY":  @(c.bottomLeftY),
+        @"confidence":   @(c.confidence),
+    } mutableCopy];
+    if (rectifiedUri) d[@"rectifiedUri"] = rectifiedUri;
+    return [d copy];
+}
 
 // ── ObjC frame processor plugin ──────────────────────────────────────────────
 
@@ -18,12 +72,16 @@
 }
 
 - (id)callback:(Frame*)frame withArguments:(NSDictionary*)arguments {
-    return [CardDetectorBridge detectCornersFromSampleBuffer:frame.buffer];
+    cv::Mat gray = grayMatFromSampleBuffer(frame.buffer);
+    if (gray.empty()) return nil;
+    CardCorners corners;
+    if (!detectCardCorners(gray, corners, nullptr)) return nil;
+    return cornersToDict(corners, nil);
 }
 
 @end
 
-// ── Registration (called explicitly from CardDetectorModule.swift OnCreate) ──
+// ── Registration ─────────────────────────────────────────────────────────────
 
 @implementation CardDetectorBridge (PluginRegistration)
 
@@ -42,29 +100,7 @@
 
 @end
 
-// ── Vision helpers ────────────────────────────────────────────────────────────
-
-static NSDictionary<NSString *, NSNumber *> *observationToDict(VNRectangleObservation *obs) {
-    return @{
-        @"topLeftX":     @(obs.topLeft.x),
-        @"topLeftY":     @(1.0 - obs.topLeft.y),
-        @"topRightX":    @(obs.topRight.x),
-        @"topRightY":    @(1.0 - obs.topRight.y),
-        @"bottomRightX": @(obs.bottomRight.x),
-        @"bottomRightY": @(1.0 - obs.bottomRight.y),
-        @"bottomLeftX":  @(obs.bottomLeft.x),
-        @"bottomLeftY":  @(1.0 - obs.bottomLeft.y),
-    };
-}
-
-static VNDetectRectanglesRequest *makeRectangleRequest(void (^handler)(VNRequest *, NSError *)) {
-    VNDetectRectanglesRequest *req = [[VNDetectRectanglesRequest alloc] initWithCompletionHandler:handler];
-    req.minimumAspectRatio  = 0.62f;
-    req.maximumAspectRatio  = 0.78f;
-    req.minimumSize         = 0.10f;
-    req.maximumObservations = 1;
-    return req;
-}
+// ── Bridge methods ────────────────────────────────────────────────────────────
 
 @implementation CardDetectorBridge
 
@@ -73,33 +109,34 @@ static VNDetectRectanglesRequest *makeRectangleRequest(void (^handler)(VNRequest
     [self registerFrameProcessorPlugin];
 }
 
-+ (nullable NSDictionary<NSString *, NSNumber *> *)detectCornersFromFileURI:(NSString *)uri {
++ (nullable NSDictionary<NSString *, id> *)detectCornersFromFileURI:(NSString *)uri {
     NSString *path = [uri hasPrefix:@"file://"] ? [uri substringFromIndex:7] : uri;
     UIImage *uiImage = [UIImage imageWithContentsOfFile:path];
     if (!uiImage || !uiImage.CGImage) return nil;
 
-    __block NSDictionary<NSString *, NSNumber *> *result = nil;
-    VNDetectRectanglesRequest *request = makeRectangleRequest(^(VNRequest *req, NSError *err) {
-        VNRectangleObservation *obs = req.results.firstObject;
-        if (obs) result = observationToDict(obs);
-    });
+    cv::Mat bgr = matFromUIImage(uiImage);
+    if (bgr.empty()) return nil;
 
-    CIImage *ciImage = [CIImage imageWithCGImage:uiImage.CGImage];
-    VNImageRequestHandler *imgHandler = [[VNImageRequestHandler alloc] initWithCIImage:ciImage options:@{}];
-    [imgHandler performRequests:@[request] error:nil];
-    return result;
+    NSString *rectPath = [path stringByAppendingString:@".rect.jpg"];
+    std::string rectPathStr = rectPath.UTF8String;
+
+    CardCorners corners;
+    if (!detectCardCorners(bgr, corners, &rectPathStr)) return nil;
+
+    NSFileManager *fm = [NSFileManager defaultManager];
+    NSString *rectUri = [fm fileExistsAtPath:rectPath]
+        ? [@"file://" stringByAppendingString:rectPath]
+        : nil;
+
+    return cornersToDict(corners, rectUri);
 }
 
-+ (nullable NSDictionary<NSString *, NSNumber *> *)detectCornersFromSampleBuffer:(CMSampleBufferRef)sampleBuffer {
-    __block NSDictionary<NSString *, NSNumber *> *result = nil;
-    VNDetectRectanglesRequest *request = makeRectangleRequest(^(VNRequest *req, NSError *err) {
-        VNRectangleObservation *obs = req.results.firstObject;
-        if (obs) result = observationToDict(obs);
-    });
-
-    VNImageRequestHandler *imgHandler = [[VNImageRequestHandler alloc] initWithCMSampleBuffer:sampleBuffer options:@{}];
-    [imgHandler performRequests:@[request] error:nil];
-    return result;
++ (nullable NSDictionary<NSString *, id> *)detectCornersFromSampleBuffer:(CMSampleBufferRef)sampleBuffer {
+    cv::Mat gray = grayMatFromSampleBuffer(sampleBuffer);
+    if (gray.empty()) return nil;
+    CardCorners corners;
+    if (!detectCardCorners(gray, corners, nullptr)) return nil;
+    return cornersToDict(corners, nil);
 }
 
 @end

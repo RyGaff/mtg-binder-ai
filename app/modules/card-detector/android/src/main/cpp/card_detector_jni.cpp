@@ -18,6 +18,7 @@ Java_expo_modules_carddetector_CardDetectorModule_detectCornersNative(
     if (!detectCardCorners(image, corners, &rectPath)) return nullptr;
 
     jfloatArray result = env->NewFloatArray(9);
+    if (!result) return nullptr;
     float data[9] = {
         corners.topLeftX,     corners.topLeftY,
         corners.topRightX,    corners.topRightY,
@@ -43,6 +44,7 @@ Java_expo_modules_carddetector_CardDetectorFrameProcessorPlugin_detectCornersFro
     if (!detectCardCorners(grayClone, corners, nullptr)) return nullptr;
 
     jfloatArray result = env->NewFloatArray(9);
+    if (!result) return nullptr;
     float data[9] = {
         corners.topLeftX,     corners.topLeftY,
         corners.topRightX,    corners.topRightY,

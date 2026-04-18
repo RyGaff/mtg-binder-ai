@@ -155,11 +155,17 @@ function CardDetectionOverlay({
 
   return (
     <>
-      {/* Card quad */}
-      <OverlayLine from={tl} to={tr} color="rgba(0,220,220,0.9)" />
-      <OverlayLine from={tr} to={br} color="rgba(0,220,220,0.9)" />
-      <OverlayLine from={br} to={bl} color="rgba(0,220,220,0.9)" />
-      <OverlayLine from={bl} to={tl} color="rgba(0,220,220,0.9)" />
+      {/* Bright solid corner dots — immediately visible if projection lands anywhere on screen */}
+      <View pointerEvents="none" style={{ position: 'absolute', left: tl.x - 12, top: tl.y - 12, width: 24, height: 24, borderRadius: 12, backgroundColor: 'red', borderWidth: 2, borderColor: 'white' }} />
+      <View pointerEvents="none" style={{ position: 'absolute', left: tr.x - 12, top: tr.y - 12, width: 24, height: 24, borderRadius: 12, backgroundColor: 'lime', borderWidth: 2, borderColor: 'white' }} />
+      <View pointerEvents="none" style={{ position: 'absolute', left: br.x - 12, top: br.y - 12, width: 24, height: 24, borderRadius: 12, backgroundColor: 'yellow', borderWidth: 2, borderColor: 'black' }} />
+      <View pointerEvents="none" style={{ position: 'absolute', left: bl.x - 12, top: bl.y - 12, width: 24, height: 24, borderRadius: 12, backgroundColor: 'magenta', borderWidth: 2, borderColor: 'white' }} />
+
+      {/* Card quad — thicker for visibility */}
+      <OverlayLine from={tl} to={tr} color="rgba(0,220,220,1.0)" thickness={6} />
+      <OverlayLine from={tr} to={br} color="rgba(0,220,220,1.0)" thickness={6} />
+      <OverlayLine from={br} to={bl} color="rgba(0,220,220,1.0)" thickness={6} />
+      <OverlayLine from={bl} to={tl} color="rgba(0,220,220,1.0)" thickness={6} />
 
       {/* OCR region (bottom-left) */}
       <OverlayLine from={ocrTL} to={ocrTR} color={blColor} thickness={2} />
@@ -624,6 +630,29 @@ export default function ScanScreen() {
 
   return (
     <View style={styles.screen}>
+      {/* Big fixed-position detection indicator — proves state is propagating */}
+      {detection && (
+        <View
+          pointerEvents="none"
+          style={{
+            position: 'absolute',
+            top: 200,
+            right: 12,
+            width: 80,
+            height: 80,
+            borderRadius: 40,
+            backgroundColor: 'rgba(255,0,255,0.9)',
+            borderWidth: 4,
+            borderColor: 'white',
+            zIndex: 999,
+            alignItems: 'center',
+            justifyContent: 'center',
+          }}
+        >
+          <Text style={{ color: 'white', fontWeight: '900', fontSize: 14 }}>DET</Text>
+        </View>
+      )}
+
       {/* Debug overlay — plugin, frames, hits, conf, pixel fmt, per-stage stats */}
       <View style={debugStyles.devBadge} pointerEvents="none">
         <Text style={debugStyles.devText}>

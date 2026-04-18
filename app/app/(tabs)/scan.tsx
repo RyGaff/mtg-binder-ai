@@ -805,17 +805,20 @@ export default function ScanScreen() {
         </View>
       ) : (
         <>
-          <Camera
-            ref={cameraRef}
-            style={styles.camera}
-            device={device}
-            isActive={!pickedImageUri}
-            frameProcessor={frameProcessor}
-            photo={true}
-            pixelFormat="yuv"
-          >
+          {/* Camera + overlay share one flex:1 parent so the overlay
+              covers exactly the camera's area (not the header/footer). */}
+          <View style={{ flex: 1 }}>
+            <Camera
+              ref={cameraRef}
+              style={StyleSheet.absoluteFillObject}
+              device={device}
+              isActive={!pickedImageUri}
+              frameProcessor={frameProcessor}
+              photo={true}
+              pixelFormat="yuv"
+            />
             {cameraOverlay}
-          </Camera>
+          </View>
           {/* OCR debug panel — absolute, bottom of screen, above footer */}
           <OcrDebugPanel phase={phase} strategy={scanStrategy} />
         </>

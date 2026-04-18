@@ -34,11 +34,13 @@ const mockRecognize = (TextRecognition as any).recognize as jest.Mock;
 const mockFetchBySet = fetchCardBySetNumber as jest.Mock;
 const mockFetchByName = fetchCardByName as jest.Mock;
 
-const CORNERS = {
+const CORNERS: import('../../modules/card-detector/src').CardCorners = {
   topLeft:     { x: 0.1, y: 0.1 },
   topRight:    { x: 0.9, y: 0.1 },
   bottomRight: { x: 0.9, y: 0.9 },
   bottomLeft:  { x: 0.1, y: 0.9 },
+  confidence:  0.85,
+  rectifiedUri: 'file:///tmp/test.rect.jpg',
 };
 
 const MOCK_CARD = {

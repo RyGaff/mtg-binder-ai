@@ -7,3 +7,5 @@ model*
 .idea
 __pycache__
 missing_art
+docs
+.worktrees

@@ -153,25 +153,70 @@ function CardDetectionOverlay({
     ? 'rgba(0,220,220,1.0)'
     : 'rgba(0,220,220,0.3)';
 
+  // Axis-aligned bounding rectangles are more robust than rotated lines.
+  // The shape/size tells you exactly what the detector picked.
+  const quadBB = {
+    left:   Math.min(tl.x, tr.x, br.x, bl.x),
+    top:    Math.min(tl.y, tr.y, br.y, bl.y),
+    width:  Math.max(tl.x, tr.x, br.x, bl.x) - Math.min(tl.x, tr.x, br.x, bl.x),
+    height: Math.max(tl.y, tr.y, br.y, bl.y) - Math.min(tl.y, tr.y, br.y, bl.y),
+  };
+  const blBB = {
+    left:   Math.min(ocrTL.x, ocrTR.x, ocrBR.x, ocrBL.x),
+    top:    Math.min(ocrTL.y, ocrTR.y, ocrBR.y, ocrBL.y),
+    width:  Math.max(ocrTL.x, ocrTR.x, ocrBR.x, ocrBL.x) - Math.min(ocrTL.x, ocrTR.x, ocrBR.x, ocrBL.x),
+    height: Math.max(ocrTL.y, ocrTR.y, ocrBR.y, ocrBL.y) - Math.min(ocrTL.y, ocrTR.y, ocrBR.y, ocrBL.y),
+  };
+  const nameBB = {
+    left:   Math.min(nameTL.x, nameTR.x, nameBR.x, nameBL.x),
+    top:    Math.min(nameTL.y, nameTR.y, nameBR.y, nameBL.y),
+    width:  Math.max(nameTL.x, nameTR.x, nameBR.x, nameBL.x) - Math.min(nameTL.x, nameTR.x, nameBR.x, nameBL.x),
+    height: Math.max(nameTL.y, nameTR.y, nameBR.y, nameBL.y) - Math.min(nameTL.y, nameTR.y, nameBR.y, nameBL.y),
+  };
+
   return (
     <>
-      {/* Detected card quad */}
-      <OverlayLine from={tl} to={tr} color="rgba(0,220,220,0.95)" thickness={3} />
-      <OverlayLine from={tr} to={br} color="rgba(0,220,220,0.95)" thickness={3} />
-      <OverlayLine from={br} to={bl} color="rgba(0,220,220,0.95)" thickness={3} />
-      <OverlayLine from={bl} to={tl} color="rgba(0,220,220,0.95)" thickness={3} />
+      {/* Detected card — axis-aligned bounding box of the detected quad */}
+      <View
+        pointerEvents="none"
+        style={{
+          position: 'absolute',
+          left: quadBB.left,
+          top: quadBB.top,
+          width: quadBB.width,
+          height: quadBB.height,
+          borderWidth: 3,
+          borderColor: 'rgba(0,220,220,0.95)',
+        }}
+      />
 
-      {/* OCR region (bottom-left) */}
-      <OverlayLine from={ocrTL} to={ocrTR} color={blColor} thickness={2} />
-      <OverlayLine from={ocrTR} to={ocrBR} color={blColor} thickness={2} />
-      <OverlayLine from={ocrBR} to={ocrBL} color={blColor} thickness={2} />
-      <OverlayLine from={ocrBL} to={ocrTL} color={blColor} thickness={2} />
+      {/* Bottom-left OCR region */}
+      <View
+        pointerEvents="none"
+        style={{
+          position: 'absolute',
+          left: blBB.left,
+          top: blBB.top,
+          width: blBB.width,
+          height: blBB.height,
+          borderWidth: 2,
+          borderColor: blColor,
+        }}
+      />
 
-      {/* Name OCR region (top of card) */}
-      <OverlayLine from={nameTL} to={nameTR} color={nameColor} thickness={2} />
-      <OverlayLine from={nameTR} to={nameBR} color={nameColor} thickness={2} />
-      <OverlayLine from={nameBR} to={nameBL} color={nameColor} thickness={2} />
-      <OverlayLine from={nameBL} to={nameTL} color={nameColor} thickness={2} />
+      {/* Name OCR region */}
+      <View
+        pointerEvents="none"
+        style={{
+          position: 'absolute',
+          left: nameBB.left,
+          top: nameBB.top,
+          width: nameBB.width,
+          height: nameBB.height,
+          borderWidth: 2,
+          borderColor: nameColor,
+        }}
+      />
 
       {/* BL crop text — always shown next to the gold box */}
       {blText != null && (

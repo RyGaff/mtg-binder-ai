@@ -137,18 +137,20 @@ bool detectCardCorners(const cv::Mat& image, CardCorners& out,
         float avgH = (h1 + h2) / 2.0f;
         if (avgH < 1.0f) continue;
         float ratio = avgW / avgH;
-        bool portrait  = ratio >= 0.50f && ratio <= 0.90f;
-        bool landscape = ratio >= 1.10f && ratio <= 2.00f;
-        if (!portrait && !landscape) continue;
+        // MTG cards are always held portrait in the scanner UI. Landscape
+        // rectangles are typically sub-features (rules text boxes, art
+        // frames) and cause false positives — reject them.
+        bool portrait = ratio >= 0.50f && ratio <= 0.90f;
+        if (!portrait) continue;
         if (stats) stats->passedAR++;
 
-        // Confidence: 40% area + 30% angle + 30% AR
+        // Confidence: 60% area + 20% angle + 20% AR. Portrait target AR = 0.715
+        // (standard MTG card). Area dominates so the true card outline beats
+        // smaller sub-quads even when their angles/AR score well.
         float areaScore  = (float)std::min(1.0, area / (imageArea * 0.5));
         float angleScore = std::max(0.0f, 1.0f - (totalAngleDev / 4.0f) / 20.0f);
-        float targetAR   = portrait ? 0.715f : 1.535f;
-        float arRange    = portrait ? 0.165f : 0.285f;
-        float arScore    = std::max(0.0f, 1.0f - std::abs(ratio - targetAR) / arRange);
-        float confidence = 0.40f * areaScore + 0.30f * angleScore + 0.30f * arScore;
+        float arScore    = std::max(0.0f, 1.0f - std::abs(ratio - 0.715f) / 0.165f);
+        float confidence = 0.60f * areaScore + 0.20f * angleScore + 0.20f * arScore;
 
         if (confidence > bestConf) {
             bestConf = confidence;

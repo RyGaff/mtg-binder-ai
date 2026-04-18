@@ -20,7 +20,7 @@ import { upsertCard } from '../../src/db/cards';
 import { useStore } from '../../src/store/useStore';
 import { useTheme } from '../../src/theme/useTheme';
 import type { CardCorners } from '../../modules/card-detector/src';
-import { detectCardCornersInFrame, initCardDetectorPlugin, CARD_CONFIDENCE_MIN, CARD_CONFIDENCE_STABLE } from '../../modules/card-detector/src';
+import { detectCardCornersInFrame, initCardDetectorPlugin, CARD_CONFIDENCE_STABLE } from '../../modules/card-detector/src';
 import type { FrameProcessorPlugin } from 'react-native-vision-camera';
 
 type ScanPhase =
@@ -441,7 +441,7 @@ export default function ScanScreen() {
 
     const raw = detectCardCornersInFrame(frame, cardPlugin);
 
-    if (raw && raw.confidence >= CARD_CONFIDENCE_MIN) {
+    if (raw) {
       const prev = smoothedCornersWv.value;
       const smoothed = prev ? emaCorners(prev, raw) : raw;
       const stable = prev ? cornersAreStable(prev, smoothed, STABLE_THRESHOLD) : false;
@@ -449,13 +449,13 @@ export default function ScanScreen() {
       smoothedCornersWv.value = smoothed;
       missCount.value = 0;
 
-      // Only count toward stability gate if confidence clears the stable threshold
+      // Stability gate: require confidence >= CARD_CONFIDENCE_STABLE to trigger OCR
       const meetsStableConf = raw.confidence >= CARD_CONFIDENCE_STABLE;
       stableCount.value = (stable && meetsStableConf) ? stableCount.value + 1 : 0;
 
-      // Vision returns corners in portrait-normalized space (iOS embeds device orientation
-      // in CMSampleBuffer). When the buffer is landscape (w > h), swap dimensions so
-      // imageToScreen projects correctly onto the portrait view.
+      // Frame buffer comes from the native side in whatever orientation the camera
+      // produced. When landscape (w > h), swap dims so imageToScreen maps into
+      // the portrait view correctly.
       const landscape = frame.width > frame.height;
       jsSetDetection({
         corners: smoothed,
@@ -469,7 +469,6 @@ export default function ScanScreen() {
         jsTriggerOcr();
       }
     } else {
-      // raw is null or below CARD_CONFIDENCE_MIN
       missCount.value += 1;
       if (missCount.value >= MISS_FRAMES) {
         smoothedCornersWv.value = null;

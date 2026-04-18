@@ -54,9 +54,14 @@ bool detectCardCorners(const cv::Mat& image, CardCorners& out, std::string* rect
     cv::Mat equalized;
     clahe->apply(gray, equalized);
 
-    // 3. Bilateral filter — preserves edges better than Gaussian blur
+    // 3. Bilateral filter — edge-preserving smoothing
+    // Use lighter params on frame processor path (no rectifiedPath) to stay under 30fps budget
     cv::Mat filtered;
-    cv::bilateralFilter(equalized, filtered, 9, 75, 75);
+    if (rectifiedPath) {
+        cv::bilateralFilter(equalized, filtered, 9, 75, 75);   // photo path: quality
+    } else {
+        cv::bilateralFilter(equalized, filtered, 5, 50, 50);   // frame path: speed
+    }
 
     // 4. Adaptive Canny
     double median = imageMedian(filtered);
@@ -138,11 +143,15 @@ bool detectCardCorners(const cv::Mat& image, CardCorners& out, std::string* rect
     if (bestPts.empty()) return false;
 
     // 7. Sub-pixel refinement
-    cv::cornerSubPix(
-        gray, bestPts,
-        cv::Size(5, 5), cv::Size(-1, -1),
-        cv::TermCriteria(cv::TermCriteria::EPS + cv::TermCriteria::MAX_ITER, 40, 0.001)
-    );
+    try {
+        cv::cornerSubPix(
+            gray, bestPts,
+            cv::Size(5, 5), cv::Size(-1, -1),
+            cv::TermCriteria(cv::TermCriteria::EPS + cv::TermCriteria::MAX_ITER, 40, 0.001)
+        );
+    } catch (const cv::Exception&) {
+        // corner too close to border — use integer-precision corners
+    }
 
     // 8. Perspective warp to 400×560
     if (rectifiedPath && !rectifiedPath->empty()) {
@@ -152,7 +161,11 @@ bool detectCardCorners(const cv::Mat& image, CardCorners& out, std::string* rect
         if (std::abs(cv::determinant(M)) > 1e-6) {
             cv::Mat rectified;
             cv::warpPerspective(image, rectified, M, cv::Size(400, 560));
-            cv::imwrite(*rectifiedPath, rectified);
+            if (!cv::imwrite(*rectifiedPath, rectified)) {
+                rectifiedPath->clear();  // signal to caller that file was not written
+            }
+        } else {
+            rectifiedPath->clear();
         }
     }
 

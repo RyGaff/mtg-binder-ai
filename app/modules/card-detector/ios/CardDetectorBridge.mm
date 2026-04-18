@@ -109,11 +109,32 @@ static NSDictionary<NSString *, id> *cornersToDict(
 }
 
 - (id)callback:(Frame*)frame withArguments:(NSDictionary*)arguments {
+    CVPixelBufferRef pb = CMSampleBufferGetImageBuffer(frame.buffer);
+    OSType fmt = pb ? CVPixelBufferGetPixelFormatType(pb) : 0;
+    char fcc[5] = {
+        (char)((fmt >> 24) & 0xff), (char)((fmt >> 16) & 0xff),
+        (char)((fmt >> 8)  & 0xff), (char)( fmt        & 0xff), 0
+    };
+    NSString *fccStr = [NSString stringWithUTF8String:fcc];
+
     cv::Mat gray = grayMatFromSampleBuffer(frame.buffer);
-    if (gray.empty()) return nil;
+    if (gray.empty()) {
+        return @{ @"_debug": @YES, @"pixelFormat": fccStr,
+                  @"frameW": @(0), @"frameH": @(0) };
+    }
+
     CardCorners corners;
-    if (!detectCardCorners(gray, corners, nullptr)) return nil;
-    return cornersToDict(corners, nil);
+    bool detected = detectCardCorners(gray, corners, nullptr);
+    if (!detected) {
+        return @{ @"_debug": @YES, @"pixelFormat": fccStr,
+                  @"frameW": @(gray.cols), @"frameH": @(gray.rows) };
+    }
+
+    NSMutableDictionary *d = [cornersToDict(corners, nil) mutableCopy];
+    d[@"pixelFormat"] = fccStr;
+    d[@"frameW"] = @(gray.cols);
+    d[@"frameH"] = @(gray.rows);
+    return [d copy];
 }
 
 @end

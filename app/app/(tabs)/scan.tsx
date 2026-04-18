@@ -350,6 +350,8 @@ export default function ScanScreen() {
   const [debugFrames, setDebugFrames] = useState(0);
   const [debugHits, setDebugHits] = useState(0);
   const [debugLastConf, setDebugLastConf] = useState<number | null>(null);
+  const [debugPixFmt, setDebugPixFmt] = useState<string | null>(null);
+  const [debugFrameSize, setDebugFrameSize] = useState<{ w: number; h: number } | null>(null);
   const cameraRef = useRef<Camera>(null);
 
   useEffect(() => {
@@ -439,10 +441,12 @@ export default function ScanScreen() {
   const jsSetDetection = useRunOnJS(setDetection, [setDetection]);
   const jsTriggerOcr = useRunOnJS(triggerOcr, [triggerOcr]);
   const jsDebugTick = useRunOnJS(
-    (hit: boolean, confidence: number | null) => {
+    (hit: boolean, confidence: number | null, pixelFormat: string | null, frameW: number, frameH: number) => {
       setDebugFrames(n => n + 1);
       if (hit) setDebugHits(n => n + 1);
       setDebugLastConf(confidence);
+      if (pixelFormat) setDebugPixFmt(pixelFormat);
+      if (frameW > 0 && frameH > 0) setDebugFrameSize({ w: frameW, h: frameH });
     },
     [],
   );
@@ -452,8 +456,8 @@ export default function ScanScreen() {
     if (cardPlugin == null) return;
     if (isCapturing.value) return;
 
-    const raw = detectCardCornersInFrame(frame, cardPlugin);
-    jsDebugTick(raw != null, raw?.confidence ?? null);
+    const { corners: raw, debug } = detectCardCornersInFrame(frame, cardPlugin);
+    jsDebugTick(raw != null, raw?.confidence ?? null, debug.pixelFormat, debug.frameW, debug.frameH);
 
     if (raw) {
       const prev = smoothedCornersWv.value;
@@ -598,13 +602,15 @@ export default function ScanScreen() {
 
   return (
     <View style={styles.screen}>
-      {/* Debug overlay — plugin status, frame tick, hit rate, last confidence */}
+      {/* Debug overlay — plugin status, frame tick, hit rate, last confidence, pixel format */}
       <View style={debugStyles.devBadge} pointerEvents="none">
         <Text style={debugStyles.devText}>
           {'plugin: ' + (cardPlugin == null ? 'NULL' : 'OK') +
            '\nframes: ' + debugFrames +
            '\nhits:   ' + debugHits +
-           '\nconf:   ' + (debugLastConf == null ? '—' : debugLastConf.toFixed(3))}
+           '\nconf:   ' + (debugLastConf == null ? '—' : debugLastConf.toFixed(3)) +
+           '\nfmt:    ' + (debugPixFmt ?? '—') +
+           '\nsize:   ' + (debugFrameSize ? debugFrameSize.w + 'x' + debugFrameSize.h : '—')}
         </Text>
       </View>
 

@@ -49,16 +49,37 @@ export function initCardDetectorPlugin(): FrameProcessorPlugin | null {
   return p;
 }
 
-export function detectCardCornersInFrame(frame: Frame, plugin: FrameProcessorPlugin): CardCorners | null {
+export type FrameDebug = {
+  pixelFormat: string | null;
+  frameW:      number;
+  frameH:      number;
+};
+
+export function detectCardCornersInFrame(
+  frame: Frame,
+  plugin: FrameProcessorPlugin,
+): { corners: CardCorners | null; debug: FrameDebug } {
   'worklet';
-  const result = plugin.call(frame) as Record<string, number | string | undefined> | null;
-  if (!result) return null;
+  const result = plugin.call(frame) as Record<string, number | string | boolean | undefined> | null;
+  if (!result) {
+    return { corners: null, debug: { pixelFormat: null, frameW: 0, frameH: 0 } };
+  }
+  const debug: FrameDebug = {
+    pixelFormat: (result.pixelFormat as string) ?? null,
+    frameW:      (result.frameW as number) ?? 0,
+    frameH:      (result.frameH as number) ?? 0,
+  };
+  if (result._debug) {
+    return { corners: null, debug };
+  }
   return {
-    topLeft:     { x: result.topLeftX     as number, y: result.topLeftY     as number },
-    topRight:    { x: result.topRightX    as number, y: result.topRightY    as number },
-    bottomRight: { x: result.bottomRightX as number, y: result.bottomRightY as number },
-    bottomLeft:  { x: result.bottomLeftX  as number, y: result.bottomLeftY  as number },
-    confidence:  result.confidence as number,
-    // Frame processor path does not produce rectifiedUri
+    corners: {
+      topLeft:     { x: result.topLeftX     as number, y: result.topLeftY     as number },
+      topRight:    { x: result.topRightX    as number, y: result.topRightY    as number },
+      bottomRight: { x: result.bottomRightX as number, y: result.bottomRightY as number },
+      bottomLeft:  { x: result.bottomLeftX  as number, y: result.bottomLeftY  as number },
+      confidence:  result.confidence as number,
+    },
+    debug,
   };
 }

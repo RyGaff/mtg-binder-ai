@@ -96,9 +96,15 @@ bool detectCardCorners(const cv::Mat& image, CardCorners& out,
     float bestConf = -1.0f;
 
     for (const auto& contour : contours) {
-        double perimeter = cv::arcLength(contour, true);
+        // Take the convex hull first so minor edge noise / inward notches
+        // don't inflate the vertex count. MTG cards have rounded corners that
+        // approxPolyDP can round off into spurious extra vertices — the hull
+        // collapses those reliably.
+        std::vector<cv::Point> hull;
+        cv::convexHull(contour, hull);
+        double perimeter = cv::arcLength(hull, true);
         std::vector<cv::Point> approx;
-        cv::approxPolyDP(contour, approx, 0.025 * perimeter, true);
+        cv::approxPolyDP(hull, approx, 0.04 * perimeter, true);
         if (approx.size() != 4) continue;
         if (stats) stats->passed4Vertex++;
 

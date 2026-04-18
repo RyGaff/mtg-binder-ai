@@ -353,13 +353,6 @@ export default function ScanScreen() {
     setCardPlugin(initCardDetectorPlugin());
   }, []);
 
-  useEffect(() => {
-    if (detection) {
-      console.log('[DetectionDebug] corners:', JSON.stringify(detection.corners));
-      console.log('[DetectionDebug] imageW:', detection.imageW, 'imageH:', detection.imageH);
-      console.log('[DetectionDebug] overlayLayout:', JSON.stringify(overlayLayout));
-    }
-  }, [detection]);
   const { setLastScannedId, addRecentScan, recentScans } = useStore();
 
   // Worklet-safe shared values — written on the frame processor thread
@@ -429,9 +422,10 @@ export default function ScanScreen() {
       await new Promise<void>(resolve => setTimeout(resolve, 1500));
       setSuccessCard(null);
     } catch (e) {
-      console.warn('[scan]', e instanceof Error ? e.message : e);
+      const msg = e instanceof Error ? e.message : 'Unknown error';
+      console.warn('[scan]', msg);
       setActiveRegion(null);
-      setPhase({ status: 'idle' });
+      setPhase({ status: 'error', message: msg });
     } finally {
       isCapturing.value = false;
     }

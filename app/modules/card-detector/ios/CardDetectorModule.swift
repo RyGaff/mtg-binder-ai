@@ -8,9 +8,8 @@ public class CardDetectorModule: Module {
             CardDetectorBridge.registerFrameProcessorPlugin()
         }
 
-        AsyncFunction("detectCardCorners") { (uri: String) -> [String: Double]? in
-            guard let result = CardDetectorBridge.detectCorners(fromFileURI: uri) as? [String: Double] else { return nil }
-            return result
+        AsyncFunction("detectCardCorners") { (uri: String) -> [String: Any]? in
+            return CardDetectorBridge.detectCorners(fromFileURI: uri) as? [String: Any]
         }
     }
 }

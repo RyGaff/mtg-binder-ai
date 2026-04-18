@@ -155,17 +155,11 @@ function CardDetectionOverlay({
 
   return (
     <>
-      {/* Bright solid corner dots — immediately visible if projection lands anywhere on screen */}
-      <View pointerEvents="none" style={{ position: 'absolute', left: tl.x - 12, top: tl.y - 12, width: 24, height: 24, borderRadius: 12, backgroundColor: 'red', borderWidth: 2, borderColor: 'white' }} />
-      <View pointerEvents="none" style={{ position: 'absolute', left: tr.x - 12, top: tr.y - 12, width: 24, height: 24, borderRadius: 12, backgroundColor: 'lime', borderWidth: 2, borderColor: 'white' }} />
-      <View pointerEvents="none" style={{ position: 'absolute', left: br.x - 12, top: br.y - 12, width: 24, height: 24, borderRadius: 12, backgroundColor: 'yellow', borderWidth: 2, borderColor: 'black' }} />
-      <View pointerEvents="none" style={{ position: 'absolute', left: bl.x - 12, top: bl.y - 12, width: 24, height: 24, borderRadius: 12, backgroundColor: 'magenta', borderWidth: 2, borderColor: 'white' }} />
-
-      {/* Card quad — thicker for visibility */}
-      <OverlayLine from={tl} to={tr} color="rgba(0,220,220,1.0)" thickness={6} />
-      <OverlayLine from={tr} to={br} color="rgba(0,220,220,1.0)" thickness={6} />
-      <OverlayLine from={br} to={bl} color="rgba(0,220,220,1.0)" thickness={6} />
-      <OverlayLine from={bl} to={tl} color="rgba(0,220,220,1.0)" thickness={6} />
+      {/* Detected card quad */}
+      <OverlayLine from={tl} to={tr} color="rgba(0,220,220,0.95)" thickness={3} />
+      <OverlayLine from={tr} to={br} color="rgba(0,220,220,0.95)" thickness={3} />
+      <OverlayLine from={br} to={bl} color="rgba(0,220,220,0.95)" thickness={3} />
+      <OverlayLine from={bl} to={tl} color="rgba(0,220,220,0.95)" thickness={3} />
 
       {/* OCR region (bottom-left) */}
       <OverlayLine from={ocrTL} to={ocrTR} color={blColor} thickness={2} />
@@ -628,31 +622,20 @@ export default function ScanScreen() {
   const cameraOverlay       = buildOverlay(true);
   const pickedImageOverlay  = buildOverlay(false);
 
+  // Projected corner coords (for debug readout so we can see where the quad is drawing)
+  const projTL = detection
+    ? imageToScreen(detection.corners.topLeft.x, detection.corners.topLeft.y,
+                    detection.imageW, detection.imageH,
+                    overlayLayout.width, overlayLayout.height, true)
+    : null;
+  const projBR = detection
+    ? imageToScreen(detection.corners.bottomRight.x, detection.corners.bottomRight.y,
+                    detection.imageW, detection.imageH,
+                    overlayLayout.width, overlayLayout.height, true)
+    : null;
+
   return (
     <View style={styles.screen}>
-      {/* Big fixed-position detection indicator — proves state is propagating */}
-      {detection && (
-        <View
-          pointerEvents="none"
-          style={{
-            position: 'absolute',
-            top: 200,
-            right: 12,
-            width: 80,
-            height: 80,
-            borderRadius: 40,
-            backgroundColor: 'rgba(255,0,255,0.9)',
-            borderWidth: 4,
-            borderColor: 'white',
-            zIndex: 999,
-            alignItems: 'center',
-            justifyContent: 'center',
-          }}
-        >
-          <Text style={{ color: 'white', fontWeight: '900', fontSize: 14 }}>DET</Text>
-        </View>
-      )}
-
       {/* Debug overlay — plugin, frames, hits, conf, pixel fmt, per-stage stats */}
       <View style={debugStyles.devBadge} pointerEvents="none">
         <Text style={debugStyles.devText}>
@@ -665,6 +648,9 @@ export default function ScanScreen() {
            '\nconf:   ' + (debugLastConf == null ? '—' : debugLastConf.toFixed(3)) +
            '\nfmt:    ' + (debugPixFmt ?? '—') +
            '\nsize:   ' + (debugFrameSize ? debugFrameSize.w + 'x' + debugFrameSize.h : '—') +
+           '\nview:   ' + Math.round(overlayLayout.width) + 'x' + Math.round(overlayLayout.height) +
+           (projTL ? '\ntl:     ' + Math.round(projTL.x) + ',' + Math.round(projTL.y) : '') +
+           (projBR ? '\nbr:     ' + Math.round(projBR.x) + ',' + Math.round(projBR.y) : '') +
            (debugStats
               ? '\nmedLum: ' + debugStats.medianLuma +
                 '\nedges:  ' + debugStats.edgePixels +
@@ -834,11 +820,7 @@ const styles = StyleSheet.create({
 
   // Overlay sits on top of camera feed
   overlay: {
-    flex: 1,
-    alignItems: 'center',
-    justifyContent: 'center',
-    gap: 12,
-    paddingBottom: 80,
+    ...StyleSheet.absoluteFillObject,
   },
 
   // Error toast pinned to top

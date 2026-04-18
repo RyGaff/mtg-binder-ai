@@ -34,11 +34,13 @@ const mockRecognize = (TextRecognition as any).recognize as jest.Mock;
 const mockFetchBySet = fetchCardBySetNumber as jest.Mock;
 const mockFetchByName = fetchCardByName as jest.Mock;
 
-const CORNERS = {
+const CORNERS: import('../../modules/card-detector/src').CardCorners = {
   topLeft:     { x: 0.1, y: 0.1 },
   topRight:    { x: 0.9, y: 0.1 },
   bottomRight: { x: 0.9, y: 0.9 },
   bottomLeft:  { x: 0.1, y: 0.9 },
+  confidence:  0.85,
+  rectifiedUri: 'file:///tmp/test.rect.jpg',
 };
 
 const MOCK_CARD = {
@@ -156,5 +158,51 @@ describe('scanCard', () => {
     mockRecognize.mockResolvedValue([]);
 
     await expect(scanCard('file:///photo.jpg')).rejects.toThrow('No text found in name region');
+  });
+});
+
+describe('scanCard — rectified image path', () => {
+  const RECT_CORNERS: import('../../modules/card-detector/src').CardCorners = {
+    ...CORNERS,
+    rectifiedUri: 'file:///tmp/test.rect.jpg',
+  };
+
+  it('crops from rectifiedUri when available (BL path)', async () => {
+    mockDetect.mockResolvedValue(RECT_CORNERS);
+    mockManipulate.mockResolvedValue({ uri: 'file:///crop.jpg', width: 400, height: 560 });
+    mockRecognize.mockResolvedValue(['161 R LEA EN']);
+    mockFetchBySet.mockResolvedValue(MOCK_CARD);
+
+    await scanCard('file:///photo.jpg');
+
+    expect(mockManipulate.mock.calls[0][0]).toBe('file:///tmp/test.rect.jpg');
+  });
+
+  it('crops from rectifiedUri for name fallback', async () => {
+    mockDetect.mockResolvedValue(RECT_CORNERS);
+    mockManipulate.mockResolvedValue({ uri: 'file:///crop.jpg', width: 400, height: 560 });
+    mockRecognize
+      .mockResolvedValueOnce(['not a card'])
+      .mockResolvedValueOnce(['Lightning Bolt']);
+    mockFetchByName.mockResolvedValue(MOCK_CARD);
+
+    await scanCard('file:///photo.jpg');
+
+    expect(mockManipulate.mock.calls[0][0]).toBe('file:///tmp/test.rect.jpg');
+    expect(mockManipulate.mock.calls[1][0]).toBe('file:///tmp/test.rect.jpg');
+  });
+
+  it('falls back to raw URI crop when no rectifiedUri', async () => {
+    const noRectCorners = { ...CORNERS, rectifiedUri: undefined };
+    mockDetect.mockResolvedValue(noRectCorners);
+    mockManipulate
+      .mockResolvedValueOnce({ uri: 'file:///info.jpg', width: 1000, height: 1400 })
+      .mockResolvedValueOnce({ uri: 'file:///crop.jpg', width: 1000, height: 1400 });
+    mockRecognize.mockResolvedValue(['161 R LEA EN']);
+    mockFetchBySet.mockResolvedValue(MOCK_CARD);
+
+    await scanCard('file:///photo.jpg');
+
+    expect(mockManipulate.mock.calls[1][0]).toBe('file:///photo.jpg');
   });
 });

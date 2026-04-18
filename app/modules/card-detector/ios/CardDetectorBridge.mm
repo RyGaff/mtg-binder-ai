@@ -5,7 +5,7 @@
 #import <VisionCamera/FrameProcessorPluginRegistry.h>
 #import <VisionCamera/VisionCameraProxyHolder.h>
 #import <VisionCamera/Frame.h>
-#include "card_detector.h"
+#include "../cpp/card_detector.h"
 
 // ── cv::Mat helpers ───────────────────────────────────────────────────────────
 

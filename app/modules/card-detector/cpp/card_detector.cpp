@@ -41,7 +41,9 @@ static std::vector<cv::Point2f> sortCorners(std::vector<cv::Point2f> pts) {
     return {tl, tr, br, bl};
 }
 
-bool detectCardCorners(const cv::Mat& image, CardCorners& out, std::string* rectifiedPath) {
+bool detectCardCorners(const cv::Mat& image, CardCorners& out,
+                       std::string* rectifiedPath, DetectionStats* stats) {
+    if (stats) *stats = {};
     if (image.empty()) return false;
 
     // 1. Grayscale
@@ -79,7 +81,11 @@ bool detectCardCorners(const cv::Mat& image, CardCorners& out, std::string* rect
     cv::findContours(edges, contours, cv::RETR_EXTERNAL, cv::CHAIN_APPROX_SIMPLE);
 
     double imageArea = (double)image.cols * image.rows;
-    double minArea   = imageArea * 0.10;
+    // Cover-mode display crops a lot of the native frame, so cards often occupy
+    // only ~5–8% of the raw 1920×1080 buffer. 3% keeps room for that.
+    double minArea   = imageArea * 0.03;
+
+    if (stats) stats->contoursTotal = (int)contours.size();
 
     std::vector<cv::Point2f> bestPts;
     float bestConf = -1.0f;
@@ -87,14 +93,17 @@ bool detectCardCorners(const cv::Mat& image, CardCorners& out, std::string* rect
     for (const auto& contour : contours) {
         double perimeter = cv::arcLength(contour, true);
         std::vector<cv::Point> approx;
-        cv::approxPolyDP(contour, approx, 0.015 * perimeter, true);
+        cv::approxPolyDP(contour, approx, 0.025 * perimeter, true);
         if (approx.size() != 4) continue;
+        if (stats) stats->passed4Vertex++;
 
         double area = cv::contourArea(approx);
         if (area < minArea) continue;
+        if (stats) stats->passedMinArea++;
 
         // Convexity check
         if (!cv::isContourConvex(approx)) continue;
+        if (stats) stats->passedConvex++;
 
         std::vector<cv::Point2f> pts2f;
         pts2f.reserve(4);
@@ -103,15 +112,16 @@ bool detectCardCorners(const cv::Mat& image, CardCorners& out, std::string* rect
 
         auto sorted = sortCorners(pts2f);
 
-        // Interior angle validation (70–110°)
+        // Interior angle validation (60–120°, widened for perspective skew)
         bool anglesOk = true;
         float totalAngleDev = 0.0f;
         for (int i = 0; i < 4; i++) {
             float angle = angleDeg(sorted[(i + 3) % 4], sorted[i], sorted[(i + 1) % 4]);
-            if (angle < 70.0f || angle > 110.0f) { anglesOk = false; break; }
+            if (angle < 60.0f || angle > 120.0f) { anglesOk = false; break; }
             totalAngleDev += std::abs(angle - 90.0f);
         }
         if (!anglesOk) continue;
+        if (stats) stats->passedAngles++;
 
         // Quad-edge aspect ratio (actual edge lengths, not bounding box)
         float w1 = cv::norm(sorted[1] - sorted[0]);
@@ -122,9 +132,10 @@ bool detectCardCorners(const cv::Mat& image, CardCorners& out, std::string* rect
         float avgH = (h1 + h2) / 2.0f;
         if (avgH < 1.0f) continue;
         float ratio = avgW / avgH;
-        bool portrait  = ratio >= 0.55f && ratio <= 0.80f;
-        bool landscape = ratio >= 1.25f && ratio <= 1.82f;
+        bool portrait  = ratio >= 0.50f && ratio <= 0.90f;
+        bool landscape = ratio >= 1.10f && ratio <= 2.00f;
         if (!portrait && !landscape) continue;
+        if (stats) stats->passedAR++;
 
         // Confidence: 40% area + 30% angle + 30% AR
         float areaScore  = (float)std::min(1.0, area / (imageArea * 0.5));

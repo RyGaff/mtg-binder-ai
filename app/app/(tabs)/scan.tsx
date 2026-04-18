@@ -352,6 +352,10 @@ export default function ScanScreen() {
   const [debugLastConf, setDebugLastConf] = useState<number | null>(null);
   const [debugPixFmt, setDebugPixFmt] = useState<string | null>(null);
   const [debugFrameSize, setDebugFrameSize] = useState<{ w: number; h: number } | null>(null);
+  const [debugStats, setDebugStats] = useState<{
+    contoursTotal: number; passed4Vertex: number; passedMinArea: number;
+    passedConvex: number; passedAngles: number; passedAR: number;
+  } | null>(null);
   const cameraRef = useRef<Camera>(null);
 
   useEffect(() => {
@@ -441,12 +445,20 @@ export default function ScanScreen() {
   const jsSetDetection = useRunOnJS(setDetection, [setDetection]);
   const jsTriggerOcr = useRunOnJS(triggerOcr, [triggerOcr]);
   const jsDebugTick = useRunOnJS(
-    (hit: boolean, confidence: number | null, pixelFormat: string | null, frameW: number, frameH: number) => {
+    (
+      hit: boolean,
+      confidence: number | null,
+      pixelFormat: string | null,
+      frameW: number,
+      frameH: number,
+      stats: typeof debugStats,
+    ) => {
       setDebugFrames(n => n + 1);
       if (hit) setDebugHits(n => n + 1);
       setDebugLastConf(confidence);
       if (pixelFormat) setDebugPixFmt(pixelFormat);
       if (frameW > 0 && frameH > 0) setDebugFrameSize({ w: frameW, h: frameH });
+      if (stats) setDebugStats(stats);
     },
     [],
   );
@@ -457,7 +469,7 @@ export default function ScanScreen() {
     if (isCapturing.value) return;
 
     const { corners: raw, debug } = detectCardCornersInFrame(frame, cardPlugin);
-    jsDebugTick(raw != null, raw?.confidence ?? null, debug.pixelFormat, debug.frameW, debug.frameH);
+    jsDebugTick(raw != null, raw?.confidence ?? null, debug.pixelFormat, debug.frameW, debug.frameH, debug.stats);
 
     if (raw) {
       const prev = smoothedCornersWv.value;
@@ -602,7 +614,7 @@ export default function ScanScreen() {
 
   return (
     <View style={styles.screen}>
-      {/* Debug overlay — plugin status, frame tick, hit rate, last confidence, pixel format */}
+      {/* Debug overlay — plugin, frames, hits, conf, pixel fmt, per-stage stats */}
       <View style={debugStyles.devBadge} pointerEvents="none">
         <Text style={debugStyles.devText}>
           {'plugin: ' + (cardPlugin == null ? 'NULL' : 'OK') +
@@ -610,7 +622,15 @@ export default function ScanScreen() {
            '\nhits:   ' + debugHits +
            '\nconf:   ' + (debugLastConf == null ? '—' : debugLastConf.toFixed(3)) +
            '\nfmt:    ' + (debugPixFmt ?? '—') +
-           '\nsize:   ' + (debugFrameSize ? debugFrameSize.w + 'x' + debugFrameSize.h : '—')}
+           '\nsize:   ' + (debugFrameSize ? debugFrameSize.w + 'x' + debugFrameSize.h : '—') +
+           (debugStats
+              ? '\ncont:   ' + debugStats.contoursTotal +
+                '\n4vert:  ' + debugStats.passed4Vertex +
+                '\narea:   ' + debugStats.passedMinArea +
+                '\nconv:   ' + debugStats.passedConvex +
+                '\nang:    ' + debugStats.passedAngles +
+                '\nAR:     ' + debugStats.passedAR
+              : '')}
         </Text>
       </View>
 

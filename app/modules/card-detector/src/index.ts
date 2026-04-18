@@ -49,10 +49,20 @@ export function initCardDetectorPlugin(): FrameProcessorPlugin | null {
   return p;
 }
 
+export type DetectionStats = {
+  contoursTotal: number;
+  passed4Vertex: number;
+  passedMinArea: number;
+  passedConvex:  number;
+  passedAngles:  number;
+  passedAR:      number;
+};
+
 export type FrameDebug = {
   pixelFormat: string | null;
   frameW:      number;
   frameH:      number;
+  stats:       DetectionStats | null;
 };
 
 export function detectCardCornersInFrame(
@@ -60,14 +70,26 @@ export function detectCardCornersInFrame(
   plugin: FrameProcessorPlugin,
 ): { corners: CardCorners | null; debug: FrameDebug } {
   'worklet';
-  const result = plugin.call(frame) as Record<string, number | string | boolean | undefined> | null;
+  const result = plugin.call(frame) as Record<string, unknown> | null;
   if (!result) {
-    return { corners: null, debug: { pixelFormat: null, frameW: 0, frameH: 0 } };
+    return { corners: null, debug: { pixelFormat: null, frameW: 0, frameH: 0, stats: null } };
   }
+  const rawStats = result.stats as Record<string, number> | undefined;
+  const stats: DetectionStats | null = rawStats
+    ? {
+        contoursTotal: rawStats.contoursTotal ?? 0,
+        passed4Vertex: rawStats.passed4Vertex ?? 0,
+        passedMinArea: rawStats.passedMinArea ?? 0,
+        passedConvex:  rawStats.passedConvex  ?? 0,
+        passedAngles:  rawStats.passedAngles  ?? 0,
+        passedAR:      rawStats.passedAR      ?? 0,
+      }
+    : null;
   const debug: FrameDebug = {
     pixelFormat: (result.pixelFormat as string) ?? null,
     frameW:      (result.frameW as number) ?? 0,
     frameH:      (result.frameH as number) ?? 0,
+    stats,
   };
   if (result._debug) {
     return { corners: null, debug };

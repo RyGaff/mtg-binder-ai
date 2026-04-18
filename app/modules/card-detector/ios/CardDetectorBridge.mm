@@ -124,16 +124,31 @@ static NSDictionary<NSString *, id> *cornersToDict(
     }
 
     CardCorners corners;
-    bool detected = detectCardCorners(gray, corners, nullptr);
+    DetectionStats stats;
+    bool detected = detectCardCorners(gray, corners, nullptr, &stats);
+
+    NSDictionary *statsDict = @{
+        @"contoursTotal":  @(stats.contoursTotal),
+        @"passed4Vertex":  @(stats.passed4Vertex),
+        @"passedMinArea":  @(stats.passedMinArea),
+        @"passedConvex":   @(stats.passedConvex),
+        @"passedAngles":   @(stats.passedAngles),
+        @"passedAR":       @(stats.passedAR),
+    };
+
     if (!detected) {
-        return @{ @"_debug": @YES, @"pixelFormat": fccStr,
-                  @"frameW": @(gray.cols), @"frameH": @(gray.rows) };
+        return @{ @"_debug":      @YES,
+                  @"pixelFormat": fccStr,
+                  @"frameW":      @(gray.cols),
+                  @"frameH":      @(gray.rows),
+                  @"stats":       statsDict };
     }
 
     NSMutableDictionary *d = [cornersToDict(corners, nil) mutableCopy];
     d[@"pixelFormat"] = fccStr;
-    d[@"frameW"] = @(gray.cols);
-    d[@"frameH"] = @(gray.rows);
+    d[@"frameW"]      = @(gray.cols);
+    d[@"frameH"]      = @(gray.rows);
+    d[@"stats"]       = statsDict;
     return [d copy];
 }
 

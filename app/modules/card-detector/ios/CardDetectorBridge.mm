@@ -128,6 +128,8 @@ static NSDictionary<NSString *, id> *cornersToDict(
     bool detected = detectCardCorners(gray, corners, nullptr, &stats);
 
     NSDictionary *statsDict = @{
+        @"medianLuma":     @(stats.medianLuma),
+        @"edgePixels":     @(stats.edgePixels),
         @"contoursTotal":  @(stats.contoursTotal),
         @"passed4Vertex":  @(stats.passed4Vertex),
         @"passedMinArea":  @(stats.passedMinArea),

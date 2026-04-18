@@ -50,6 +50,8 @@ export function initCardDetectorPlugin(): FrameProcessorPlugin | null {
 }
 
 export type DetectionStats = {
+  medianLuma:    number;
+  edgePixels:    number;
   contoursTotal: number;
   passed4Vertex: number;
   passedMinArea: number;
@@ -77,6 +79,8 @@ export function detectCardCornersInFrame(
   const rawStats = result.stats as Record<string, number> | undefined;
   const stats: DetectionStats | null = rawStats
     ? {
+        medianLuma:    rawStats.medianLuma    ?? 0,
+        edgePixels:    rawStats.edgePixels    ?? 0,
         contoursTotal: rawStats.contoursTotal ?? 0,
         passed4Vertex: rawStats.passed4Vertex ?? 0,
         passedMinArea: rawStats.passedMinArea ?? 0,

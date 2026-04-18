@@ -17,6 +17,8 @@ struct CardCorners {
 
 // Per-stage counters so we can see where the pipeline is rejecting quads.
 struct DetectionStats {
+    int medianLuma;     // median gray value feeding the adaptive Canny
+    int edgePixels;     // non-zero pixels in the post-Canny+dilate edge map
     int contoursTotal;
     int passed4Vertex;
     int passedMinArea;

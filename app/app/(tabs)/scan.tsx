@@ -353,6 +353,7 @@ export default function ScanScreen() {
   const [debugPixFmt, setDebugPixFmt] = useState<string | null>(null);
   const [debugFrameSize, setDebugFrameSize] = useState<{ w: number; h: number } | null>(null);
   const [debugStats, setDebugStats] = useState<{
+    medianLuma: number; edgePixels: number;
     contoursTotal: number; passed4Vertex: number; passedMinArea: number;
     passedConvex: number; passedAngles: number; passedAR: number;
   } | null>(null);
@@ -624,7 +625,9 @@ export default function ScanScreen() {
            '\nfmt:    ' + (debugPixFmt ?? '—') +
            '\nsize:   ' + (debugFrameSize ? debugFrameSize.w + 'x' + debugFrameSize.h : '—') +
            (debugStats
-              ? '\ncont:   ' + debugStats.contoursTotal +
+              ? '\nmedLum: ' + debugStats.medianLuma +
+                '\nedges:  ' + debugStats.edgePixels +
+                '\ncont:   ' + debugStats.contoursTotal +
                 '\n4vert:  ' + debugStats.passed4Vertex +
                 '\narea:   ' + debugStats.passedMinArea +
                 '\nconv:   ' + debugStats.passedConvex +

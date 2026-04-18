@@ -76,6 +76,11 @@ bool detectCardCorners(const cv::Mat& image, CardCorners& out,
     cv::Mat kernel = cv::getStructuringElement(cv::MORPH_RECT, cv::Size(3, 3));
     cv::dilate(edges, edges, kernel, cv::Point(-1, -1), 1);
 
+    if (stats) {
+        stats->medianLuma = (int)median;
+        stats->edgePixels = cv::countNonZero(edges);
+    }
+
     // 6. Find contours
     std::vector<std::vector<cv::Point>> contours;
     cv::findContours(edges, contours, cv::RETR_EXTERNAL, cv::CHAIN_APPROX_SIMPLE);

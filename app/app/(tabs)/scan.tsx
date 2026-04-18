@@ -347,10 +347,15 @@ export default function ScanScreen() {
   const [panelOpen, setPanelOpen] = useState(false);
   const [activeRegion, setActiveRegion] = useState<'bl' | 'name' | null>(null);
   const [cardPlugin, setCardPlugin] = useState<FrameProcessorPlugin | null>(null);
+  const [debugFrames, setDebugFrames] = useState(0);
+  const [debugHits, setDebugHits] = useState(0);
+  const [debugLastConf, setDebugLastConf] = useState<number | null>(null);
   const cameraRef = useRef<Camera>(null);
 
   useEffect(() => {
-    setCardPlugin(initCardDetectorPlugin());
+    const p = initCardDetectorPlugin();
+    console.log('[CardDetector] plugin init:', p == null ? 'NULL' : 'OK');
+    setCardPlugin(p);
   }, []);
 
   const { setLastScannedId, addRecentScan, recentScans } = useStore();
@@ -433,6 +438,14 @@ export default function ScanScreen() {
 
   const jsSetDetection = useRunOnJS(setDetection, [setDetection]);
   const jsTriggerOcr = useRunOnJS(triggerOcr, [triggerOcr]);
+  const jsDebugTick = useRunOnJS(
+    (hit: boolean, confidence: number | null) => {
+      setDebugFrames(n => n + 1);
+      if (hit) setDebugHits(n => n + 1);
+      setDebugLastConf(confidence);
+    },
+    [],
+  );
 
   const frameProcessor = useFrameProcessor((frame: Frame) => {
     'worklet';
@@ -440,6 +453,7 @@ export default function ScanScreen() {
     if (isCapturing.value) return;
 
     const raw = detectCardCornersInFrame(frame, cardPlugin);
+    jsDebugTick(raw != null, raw?.confidence ?? null);
 
     if (raw) {
       const prev = smoothedCornersWv.value;
@@ -476,7 +490,7 @@ export default function ScanScreen() {
         jsSetDetection(null);
       }
     }
-  }, [cardPlugin, isCapturing, smoothedCornersWv, stableCount, missCount, jsTriggerOcr, jsSetDetection]);
+  }, [cardPlugin, isCapturing, smoothedCornersWv, stableCount, missCount, jsTriggerOcr, jsSetDetection, jsDebugTick]);
 
   const pickFromLibrary = useCallback(async () => {
     isCapturing.value = false;
@@ -584,6 +598,16 @@ export default function ScanScreen() {
 
   return (
     <View style={styles.screen}>
+      {/* Debug overlay — plugin status, frame tick, hit rate, last confidence */}
+      <View style={debugStyles.devBadge} pointerEvents="none">
+        <Text style={debugStyles.devText}>
+          {'plugin: ' + (cardPlugin == null ? 'NULL' : 'OK') +
+           '\nframes: ' + debugFrames +
+           '\nhits:   ' + debugHits +
+           '\nconf:   ' + (debugLastConf == null ? '—' : debugLastConf.toFixed(3))}
+        </Text>
+      </View>
+
       {/* Error toast — absolute, pinned to top */}
       {phase.status === 'error' && (
         <ErrorToast message={phase.message} />
@@ -796,6 +820,21 @@ const styles = StyleSheet.create({
 });
 
 const debugStyles = StyleSheet.create({
+  devBadge: {
+    position: 'absolute',
+    top: 60,
+    left: 10,
+    zIndex: 999,
+    backgroundColor: 'rgba(0,0,0,0.82)',
+    padding: 6,
+    borderRadius: 6,
+  },
+  devText: {
+    color: '#0f0',
+    fontSize: 11,
+    fontFamily: 'monospace',
+    lineHeight: 14,
+  },
   panel: {
     position: 'absolute',
     bottom: 96,

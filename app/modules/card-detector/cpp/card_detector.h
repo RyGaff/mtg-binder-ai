@@ -1,16 +1,23 @@
 #pragma once
 #include <opencv2/opencv.hpp>
+#include <string>
+
+#define CARD_CONFIDENCE_MIN    0.35f
+#define CARD_CONFIDENCE_STABLE 0.65f
 
 struct CardCorners {
     float topLeftX,     topLeftY;
     float topRightX,    topRightY;
     float bottomRightX, bottomRightY;
     float bottomLeftX,  bottomLeftY;
+    float confidence;
 };
 
 /**
- * Detects the largest card-shaped rectangle in the image.
- * Corners are normalized to 0–1 range (top-left origin).
- * Returns false if no qualifying 4-vertex contour found.
+ * Detects the card-shaped quad with highest confidence in the image.
+ * Corners normalized to 0–1 (top-left origin). Returns false if no quad found.
+ * If rectifiedPath is non-null and non-empty, writes a 400×560 perspective-corrected
+ * JPEG to that path before returning.
  */
-bool detectCardCorners(const cv::Mat& image, CardCorners& out);
+bool detectCardCorners(const cv::Mat& image, CardCorners& out,
+                       std::string* rectifiedPath = nullptr);

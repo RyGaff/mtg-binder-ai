@@ -556,8 +556,7 @@ export default function ScanScreen() {
     }
   })();
 
-  // Overlay for picked-image mode (still sits inside the fullScreenImageContainer)
-  const pickedImageOverlay = (
+  const buildOverlay = (cover: boolean) => (
     <View
       style={styles.overlay}
       pointerEvents="none"
@@ -568,7 +567,7 @@ export default function ScanScreen() {
           detection={detection}
           viewW={overlayLayout.width}
           viewH={overlayLayout.height}
-          cover={false}
+          cover={cover}
           ocrText={ocrText}
           blText={blText}
           activeRegion={activeRegion}
@@ -581,6 +580,8 @@ export default function ScanScreen() {
       )}
     </View>
   );
+  const cameraOverlay       = buildOverlay(true);
+  const pickedImageOverlay  = buildOverlay(false);
 
   return (
     <View style={styles.screen}>
@@ -671,30 +672,9 @@ export default function ScanScreen() {
             isActive={!pickedImageUri}
             frameProcessor={frameProcessor}
             photo={true}
-          />
-          {/* Detection overlay — sibling of Camera (not child) so it isn't clipped by the native view */}
-          <View
-            style={styles.cameraOverlay}
-            pointerEvents="none"
-            onLayout={handleOverlayLayout}
           >
-            {detection && (
-              <CardDetectionOverlay
-                detection={detection}
-                viewW={overlayLayout.width}
-                viewH={overlayLayout.height}
-                cover
-                ocrText={ocrText}
-                blText={blText}
-                activeRegion={activeRegion}
-              />
-            )}
-            {statusLabel !== null && (
-              <View style={styles.statusBadge}>
-                <Text style={styles.statusText}>{statusLabel}</Text>
-              </View>
-            )}
-          </View>
+            {cameraOverlay}
+          </Camera>
           {/* OCR debug panel — absolute, bottom of screen, above footer */}
           <OcrDebugPanel phase={phase} strategy={scanStrategy} />
         </>
@@ -751,12 +731,6 @@ const styles = StyleSheet.create({
 
   // Camera / image
   camera: { flex: 1 },
-  cameraOverlay: {
-    ...StyleSheet.absoluteFillObject,
-    alignItems: 'center' as const,
-    justifyContent: 'center' as const,
-    paddingBottom: 80,
-  },
   fullScreenImageContainer: {
     ...StyleSheet.absoluteFillObject,
     zIndex: 10,

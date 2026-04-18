@@ -160,3 +160,49 @@ describe('scanCard', () => {
     await expect(scanCard('file:///photo.jpg')).rejects.toThrow('No text found in name region');
   });
 });
+
+describe('scanCard — rectified image path', () => {
+  const RECT_CORNERS: import('../../modules/card-detector/src').CardCorners = {
+    ...CORNERS,
+    rectifiedUri: 'file:///tmp/test.rect.jpg',
+  };
+
+  it('crops from rectifiedUri when available (BL path)', async () => {
+    mockDetect.mockResolvedValue(RECT_CORNERS);
+    mockManipulate.mockResolvedValue({ uri: 'file:///crop.jpg', width: 400, height: 560 });
+    mockRecognize.mockResolvedValue(['161 R LEA EN']);
+    mockFetchBySet.mockResolvedValue(MOCK_CARD);
+
+    await scanCard('file:///photo.jpg');
+
+    expect(mockManipulate.mock.calls[0][0]).toBe('file:///tmp/test.rect.jpg');
+  });
+
+  it('crops from rectifiedUri for name fallback', async () => {
+    mockDetect.mockResolvedValue(RECT_CORNERS);
+    mockManipulate.mockResolvedValue({ uri: 'file:///crop.jpg', width: 400, height: 560 });
+    mockRecognize
+      .mockResolvedValueOnce(['not a card'])
+      .mockResolvedValueOnce(['Lightning Bolt']);
+    mockFetchByName.mockResolvedValue(MOCK_CARD);
+
+    await scanCard('file:///photo.jpg');
+
+    expect(mockManipulate.mock.calls[0][0]).toBe('file:///tmp/test.rect.jpg');
+    expect(mockManipulate.mock.calls[1][0]).toBe('file:///tmp/test.rect.jpg');
+  });
+
+  it('falls back to raw URI crop when no rectifiedUri', async () => {
+    const noRectCorners = { ...CORNERS, rectifiedUri: undefined };
+    mockDetect.mockResolvedValue(noRectCorners);
+    mockManipulate
+      .mockResolvedValueOnce({ uri: 'file:///info.jpg', width: 1000, height: 1400 })
+      .mockResolvedValueOnce({ uri: 'file:///crop.jpg', width: 1000, height: 1400 });
+    mockRecognize.mockResolvedValue(['161 R LEA EN']);
+    mockFetchBySet.mockResolvedValue(MOCK_CARD);
+
+    await scanCard('file:///photo.jpg');
+
+    expect(mockManipulate.mock.calls[1][0]).toBe('file:///photo.jpg');
+  });
+});

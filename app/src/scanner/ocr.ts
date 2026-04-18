@@ -14,8 +14,8 @@ export type ScanResult = {
   corners:   import('../../modules/card-detector/src').CardCorners;
   imageW:    number;
   imageH:    number;
-  ocrText:   string;   // raw text from the region that produced the result
-  blText:    string;   // always: raw bottom-left crop OCR (for diagnostics)
+  ocrText:   string;
+  blText:    string;
 };
 
 export type ScanProgress =
@@ -23,7 +23,11 @@ export type ScanProgress =
   | { step: 'bl_ocr_done'; blText: string }
   | { step: 'name_ocr_done'; nameText: string };
 
-// ── Helpers (internal) ───────────────────────────────────────────────────────
+// Fixed pixel crop regions on the 400×560 rectified card image
+const CROP_BOTTOM_LEFT = { x: 8,  y: 504, w: 130, h: 40 };
+const CROP_NAME        = { x: 16, y: 22,  w: 310, h: 36 };
+
+// ── Helpers ──────────────────────────────────────────────────────────────────
 
 const SKIP_TOKENS = new Set([
   'EN', 'FR', 'DE', 'ES', 'IT', 'PT', 'JA', 'KO', 'RU', 'ZH', 'PH', 'CS',
@@ -45,9 +49,7 @@ async function resolveToFileUri(uri: string): Promise<string> {
 async function runOcr(uri: string): Promise<string> {
   const TextRecognition = require('react-native-text-recognition').default;
   if (!TextRecognition || typeof TextRecognition.recognize !== 'function') {
-    throw new Error(
-      'OCR module not available. Run `expo run:ios` to link native dependencies.'
-    );
+    throw new Error('OCR module not available. Run `expo run:ios` to link native dependencies.');
   }
   const resolvedUri = await resolveToFileUri(uri);
   const lines: string[] = await TextRecognition.recognize(resolvedUri);
@@ -60,23 +62,10 @@ function clamp(value: number, min: number, max: number): number {
 
 // ── Public: parseSetAndNumber ────────────────────────────────────────────────
 
-/**
- * Parses raw OCR text from the bottom-left corner of an MTG card.
- *
- * Mirrors the Python cardReader.py logic:
- *   tokens = re.split(r"[^a-zA-Z0-9/]", text)
- *   card_id = first purely numeric token, or left side of "NNN/NNN"
- *   set_id  = first exactly 3-char all-alpha token (not a skip token)
- *
- * e.g. "R 0322\nLTR EN\nArtist" → { setCode: 'ltr', collectorNumber: '0322' }
- */
 export function parseSetAndNumber(text: string): ParsedCard | null {
-  // Split on anything that isn't alphanumeric or '/' — same as Python
   const tokens = text.toUpperCase().split(/[^A-Z0-9/]+/).filter(Boolean);
-
   let collectorNumber = '';
   let setCode = '';
-
   for (const token of tokens) {
     if (!collectorNumber) {
       if (/^\d+$/.test(token)) {
@@ -90,8 +79,6 @@ export function parseSetAndNumber(text: string): ParsedCard | null {
     }
     if (collectorNumber && setCode) break;
   }
-
-  // Fallback: accept alphanumeric set codes (e.g. M21) if no pure-alpha found
   if (collectorNumber && !setCode) {
     for (const token of tokens) {
       if (/^[A-Z][A-Z0-9]{2}$/.test(token) && !SKIP_TOKENS.has(token)) {
@@ -100,19 +87,12 @@ export function parseSetAndNumber(text: string): ParsedCard | null {
       }
     }
   }
-
   if (!collectorNumber || !setCode) return null;
   return { setCode: setCode.toLowerCase(), collectorNumber };
 }
 
 // ── Public: scanCard ─────────────────────────────────────────────────────────
 
-/**
- * Full scanning pipeline:
- * 1. Detect card corners with OpenCV (native module)
- * 2. Crop bottom-left → OCR → parse set/number → Scryfall (Strategy 1)
- * 3. Fallback: crop name region top-left → OCR → fuzzy name lookup (Strategy 2)
- */
 export async function scanCard(
   uri: string,
   onProgress?: (p: ScanProgress) => void,
@@ -121,9 +101,16 @@ export async function scanCard(
   const corners = await detectCardCorners(uri);
   if (!corners) throw new Error('No card detected in image');
 
+  const useRectified = !!corners.rectifiedUri;
+  const cropSource = corners.rectifiedUri ?? uri;
+
   let imgW: number;
   let imgH: number;
-  if (imageSize) {
+  if (useRectified) {
+    // Rectified image is always 400×560 by construction
+    imgW = 400;
+    imgH = 560;
+  } else if (imageSize) {
     imgW = imageSize.width;
     imgH = imageSize.height;
   } else {
@@ -134,27 +121,35 @@ export async function scanCard(
 
   onProgress?.({ step: 'corners_detected', corners, imageW: imgW, imageH: imgH });
 
-  const cardWidthPx = Math.sqrt(
-    Math.pow((corners.bottomRight.x - corners.bottomLeft.x) * imgW, 2) +
-    Math.pow((corners.bottomRight.y - corners.bottomLeft.y) * imgH, 2)
-  );
-  const cardHeightPx = Math.sqrt(
-    Math.pow((corners.bottomLeft.x - corners.topLeft.x) * imgW, 2) +
-    Math.pow((corners.bottomLeft.y - corners.topLeft.y) * imgH, 2)
-  );
+  // ── Strategy 1: bottom-left (set/collector number) ──────────────────────────
 
-  // Strategy 1: bottom-left crop (collector number + set code)
-  // Extend 6% past the detected corner downward — Vision corners land slightly
-  // inside the card frame, which clips the bottom text line on borderless cards.
-  const blOriginX = clamp(Math.floor(corners.bottomLeft.x * imgW), 0, imgW - 1);
-  const blOriginY = clamp(Math.floor(corners.bottomLeft.y * imgH - 0.075 * cardHeightPx), 0, imgH - 1);
-  const blWidth   = clamp(Math.ceil(0.45 * cardWidthPx),  1, imgW - blOriginX);
-  const blHeight  = clamp(Math.ceil(0.075 * cardHeightPx), 1, imgH - blOriginY);
+  let blCropUri: string;
+  if (useRectified) {
+    const c = CROP_BOTTOM_LEFT;
+    const result = await ImageManipulator.manipulateAsync(cropSource, [
+      { crop: { originX: c.x, originY: c.y, width: c.w, height: c.h } },
+    ]);
+    blCropUri = result.uri;
+  } else {
+    const cardWidthPx = Math.sqrt(
+      Math.pow((corners.bottomRight.x - corners.bottomLeft.x) * imgW, 2) +
+      Math.pow((corners.bottomRight.y - corners.bottomLeft.y) * imgH, 2)
+    );
+    const cardHeightPx = Math.sqrt(
+      Math.pow((corners.bottomLeft.x - corners.topLeft.x) * imgW, 2) +
+      Math.pow((corners.bottomLeft.y - corners.topLeft.y) * imgH, 2)
+    );
+    const blOriginX = clamp(Math.floor(corners.bottomLeft.x * imgW), 0, imgW - 1);
+    const blOriginY = clamp(Math.floor(corners.bottomLeft.y * imgH - 0.075 * cardHeightPx), 0, imgH - 1);
+    const blWidth   = clamp(Math.ceil(0.45 * cardWidthPx),  1, imgW - blOriginX);
+    const blHeight  = clamp(Math.ceil(0.075 * cardHeightPx), 1, imgH - blOriginY);
+    const blCrop = await ImageManipulator.manipulateAsync(uri, [
+      { crop: { originX: blOriginX, originY: blOriginY, width: blWidth, height: blHeight } },
+    ]);
+    blCropUri = blCrop.uri;
+  }
 
-  const blCrop = await ImageManipulator.manipulateAsync(uri, [
-    { crop: { originX: blOriginX, originY: blOriginY, width: blWidth, height: blHeight } },
-  ]);
-  const blText = await runOcr(blCrop.uri);
+  const blText = await runOcr(blCropUri);
   onProgress?.({ step: 'bl_ocr_done', blText });
   const parsed = parseSetAndNumber(blText);
 
@@ -167,16 +162,35 @@ export async function scanCard(
     }
   }
 
-  // Strategy 2: name crop (top-left region)
-  const tlOriginX = clamp(Math.floor(corners.topLeft.x * imgW), 0, imgW - 1);
-  const tlOriginY = clamp(Math.floor(corners.topLeft.y * imgH), 0, imgH - 1);
-  const tlWidth   = clamp(Math.ceil(0.65 * cardWidthPx),  1, imgW - tlOriginX);
-  const tlHeight  = clamp(Math.ceil(0.12 * cardHeightPx), 1, imgH - tlOriginY);
+  // ── Strategy 2: name crop (top area) ─────────────────────────────────────
 
-  const tlCrop = await ImageManipulator.manipulateAsync(uri, [
-    { crop: { originX: tlOriginX, originY: tlOriginY, width: tlWidth, height: tlHeight } },
-  ]);
-  const tlText = await runOcr(tlCrop.uri);
+  let nameCropUri: string;
+  if (useRectified) {
+    const c = CROP_NAME;
+    const result = await ImageManipulator.manipulateAsync(cropSource, [
+      { crop: { originX: c.x, originY: c.y, width: c.w, height: c.h } },
+    ]);
+    nameCropUri = result.uri;
+  } else {
+    const cardWidthPx = Math.sqrt(
+      Math.pow((corners.bottomRight.x - corners.bottomLeft.x) * imgW, 2) +
+      Math.pow((corners.bottomRight.y - corners.bottomLeft.y) * imgH, 2)
+    );
+    const cardHeightPx = Math.sqrt(
+      Math.pow((corners.bottomLeft.x - corners.topLeft.x) * imgW, 2) +
+      Math.pow((corners.bottomLeft.y - corners.topLeft.y) * imgH, 2)
+    );
+    const tlOriginX = clamp(Math.floor(corners.topLeft.x * imgW), 0, imgW - 1);
+    const tlOriginY = clamp(Math.floor(corners.topLeft.y * imgH), 0, imgH - 1);
+    const tlWidth   = clamp(Math.ceil(0.65 * cardWidthPx),  1, imgW - tlOriginX);
+    const tlHeight  = clamp(Math.ceil(0.12 * cardHeightPx), 1, imgH - tlOriginY);
+    const tlCrop = await ImageManipulator.manipulateAsync(uri, [
+      { crop: { originX: tlOriginX, originY: tlOriginY, width: tlWidth, height: tlHeight } },
+    ]);
+    nameCropUri = tlCrop.uri;
+  }
+
+  const tlText = await runOcr(nameCropUri);
   onProgress?.({ step: 'name_ocr_done', nameText: tlText });
 
   const nameLine = tlText

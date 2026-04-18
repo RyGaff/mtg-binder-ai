@@ -118,6 +118,14 @@ static NSDictionary<NSString *, id> *cornersToDict(
     NSString *fccStr = [NSString stringWithUTF8String:fcc];
 
     cv::Mat gray = grayMatFromSampleBuffer(frame.buffer);
+    // Rotate landscape sensor buffer to match portrait display so corners come
+    // out in screen-aligned coordinates. CCW matches iOS rear camera default
+    // orientation when device is held portrait.
+    if (!gray.empty() && gray.cols > gray.rows) {
+        cv::Mat rotated;
+        cv::rotate(gray, rotated, cv::ROTATE_90_COUNTERCLOCKWISE);
+        gray = rotated;
+    }
     if (gray.empty()) {
         return @{ @"_debug": @YES, @"pixelFormat": fccStr,
                   @"frameW": @(0), @"frameH": @(0) };

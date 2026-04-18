@@ -29,14 +29,51 @@ static cv::Mat matFromUIImage(UIImage *image) {
 
 static cv::Mat grayMatFromSampleBuffer(CMSampleBufferRef sampleBuffer) {
     CVPixelBufferRef pixelBuffer = CMSampleBufferGetImageBuffer(sampleBuffer);
+    if (!pixelBuffer) return cv::Mat();
+
+    OSType fmt = CVPixelBufferGetPixelFormatType(pixelBuffer);
+
+    // One-time log so we can see the format in device console
+    static dispatch_once_t once;
+    dispatch_once(&once, ^{
+        char fcc[5] = {
+            (char)((fmt >> 24) & 0xff), (char)((fmt >> 16) & 0xff),
+            (char)((fmt >> 8)  & 0xff), (char)( fmt        & 0xff), 0
+        };
+        NSLog(@"[CardDetector] first frame pixelFormat=%s (%u) planar=%s w=%zu h=%zu",
+              fcc, (unsigned)fmt,
+              CVPixelBufferIsPlanar(pixelBuffer) ? "Y" : "N",
+              CVPixelBufferGetWidth(pixelBuffer),
+              CVPixelBufferGetHeight(pixelBuffer));
+    });
+
     CVPixelBufferLockBaseAddress(pixelBuffer, kCVPixelBufferLock_ReadOnly);
-    void *base = CVPixelBufferGetBaseAddressOfPlane(pixelBuffer, 0);
-    size_t w   = CVPixelBufferGetWidthOfPlane(pixelBuffer, 0);
-    size_t h   = CVPixelBufferGetHeightOfPlane(pixelBuffer, 0);
-    cv::Mat gray((int)h, (int)w, CV_8UC1, base);
-    cv::Mat grayClone = gray.clone();
+    cv::Mat result;
+
+    if (CVPixelBufferIsPlanar(pixelBuffer)) {
+        // YUV biplanar (420YpCbCr8Bi*) — plane 0 is luma
+        void *base    = CVPixelBufferGetBaseAddressOfPlane(pixelBuffer, 0);
+        size_t w      = CVPixelBufferGetWidthOfPlane(pixelBuffer, 0);
+        size_t h      = CVPixelBufferGetHeightOfPlane(pixelBuffer, 0);
+        size_t stride = CVPixelBufferGetBytesPerRowOfPlane(pixelBuffer, 0);
+        if (base) {
+            cv::Mat gray((int)h, (int)w, CV_8UC1, base, stride);
+            result = gray.clone();
+        }
+    } else {
+        // Non-planar — likely BGRA or RGBA. Convert to grayscale.
+        void *base    = CVPixelBufferGetBaseAddress(pixelBuffer);
+        size_t w      = CVPixelBufferGetWidth(pixelBuffer);
+        size_t h      = CVPixelBufferGetHeight(pixelBuffer);
+        size_t stride = CVPixelBufferGetBytesPerRow(pixelBuffer);
+        if (base) {
+            cv::Mat bgra((int)h, (int)w, CV_8UC4, base, stride);
+            cv::cvtColor(bgra, result, cv::COLOR_BGRA2GRAY);
+        }
+    }
+
     CVPixelBufferUnlockBaseAddress(pixelBuffer, kCVPixelBufferLock_ReadOnly);
-    return grayClone;
+    return result;
 }
 
 // ── Dict builder ─────────────────────────────────────────────────────────────

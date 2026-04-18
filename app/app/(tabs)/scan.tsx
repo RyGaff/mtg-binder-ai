@@ -695,6 +695,7 @@ export default function ScanScreen() {
             isActive={!pickedImageUri}
             frameProcessor={frameProcessor}
             photo={true}
+            pixelFormat="yuv"
           >
             {cameraOverlay}
           </Camera>

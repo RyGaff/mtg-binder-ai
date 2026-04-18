@@ -200,11 +200,30 @@ static NSDictionary<NSString *, id> *cornersToDict(
     cv::Mat bgr = matFromUIImage(uiImage);
     if (bgr.empty()) return nil;
 
+    // Downscale very large photos (takePhoto can yield 4032×3024). Keeping the
+    // long edge ~1920 makes the 3% minArea threshold meaningful for a normal-sized
+    // card and runs ~10x faster. We keep the rectified warp on the original for
+    // quality — we just rescale the detection corners back up at the end.
+    double origCols = bgr.cols;
+    double origRows = bgr.rows;
+    double longEdge = std::max(origCols, origRows);
+    double scale    = 1.0;
+    cv::Mat bgrSmall;
+    if (longEdge > 1920.0) {
+        scale = 1920.0 / longEdge;
+        cv::resize(bgr, bgrSmall, cv::Size(), scale, scale, cv::INTER_AREA);
+    } else {
+        bgrSmall = bgr;
+    }
+
     NSString *rectPath = [path stringByAppendingString:@".rect.jpg"];
     std::string rectPathStr = rectPath.UTF8String;
 
     CardCorners corners;
-    if (!detectCardCorners(bgr, corners, &rectPathStr)) return nil;
+    // Detection runs on downscaled image — corners are normalized 0–1 so they
+    // apply equally well to the original. Rectified warp is performed on the
+    // downscaled image as well, which is fine since we downsize to 400×560.
+    if (!detectCardCorners(bgrSmall, corners, &rectPathStr)) return nil;
 
     NSFileManager *fm = [NSFileManager defaultManager];
     NSString *rectUri = [fm fileExistsAtPath:rectPath]

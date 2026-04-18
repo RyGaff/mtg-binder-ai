@@ -232,7 +232,7 @@ function CardDetectionOverlay({
 const SMOOTH_ALPHA = 0.35;
 const STABLE_THRESHOLD = 0.015;
 const STABLE_FRAMES = 8;
-const MISS_FRAMES = 5;
+const MISS_FRAMES = 20;
 
 function emaCorners(prev: CardCorners, next: CardCorners): CardCorners {
   'worklet';
@@ -357,6 +357,8 @@ export default function ScanScreen() {
     contoursTotal: number; passed4Vertex: number; passedMinArea: number;
     passedConvex: number; passedAngles: number; passedAR: number;
   } | null>(null);
+  const [debugDetSet, setDebugDetSet] = useState(0);
+  const [debugDetCleared, setDebugDetCleared] = useState(0);
   const cameraRef = useRef<Camera>(null);
 
   useEffect(() => {
@@ -443,7 +445,14 @@ export default function ScanScreen() {
     }
   }, [addRecentScan, setLastScannedId, isCapturing]);
 
-  const jsSetDetection = useRunOnJS(setDetection, [setDetection]);
+  const jsSetDetection = useRunOnJS(
+    (d: DetectionInfo | null) => {
+      setDetection(d);
+      if (d) setDebugDetSet(n => n + 1);
+      else   setDebugDetCleared(n => n + 1);
+    },
+    [setDetection],
+  );
   const jsTriggerOcr = useRunOnJS(triggerOcr, [triggerOcr]);
   const jsDebugTick = useRunOnJS(
     (
@@ -621,6 +630,9 @@ export default function ScanScreen() {
           {'plugin: ' + (cardPlugin == null ? 'NULL' : 'OK') +
            '\nframes: ' + debugFrames +
            '\nhits:   ' + debugHits +
+           '\ndSet:   ' + debugDetSet +
+           '\ndClr:   ' + debugDetCleared +
+           '\ndet?:   ' + (detection ? 'YES' : 'no') +
            '\nconf:   ' + (debugLastConf == null ? '—' : debugLastConf.toFixed(3)) +
            '\nfmt:    ' + (debugPixFmt ?? '—') +
            '\nsize:   ' + (debugFrameSize ? debugFrameSize.w + 'x' + debugFrameSize.h : '—') +

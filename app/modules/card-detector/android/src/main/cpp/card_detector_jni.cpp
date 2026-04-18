@@ -9,21 +9,23 @@ Java_expo_modules_carddetector_CardDetectorModule_detectCornersNative(
 
     const char *path = env->GetStringUTFChars(filePath, nullptr);
     cv::Mat image = cv::imread(path, cv::IMREAD_COLOR);
+    std::string rectPath = std::string(path) + ".rect.jpg";
     env->ReleaseStringUTFChars(filePath, path);
 
     if (image.empty()) return nullptr;
 
     CardCorners corners;
-    if (!detectCardCorners(image, corners)) return nullptr;
+    if (!detectCardCorners(image, corners, &rectPath)) return nullptr;
 
-    jfloatArray result = env->NewFloatArray(8);
-    float data[8] = {
+    jfloatArray result = env->NewFloatArray(9);
+    float data[9] = {
         corners.topLeftX,     corners.topLeftY,
         corners.topRightX,    corners.topRightY,
         corners.bottomRightX, corners.bottomRightY,
         corners.bottomLeftX,  corners.bottomLeftY,
+        corners.confidence,
     };
-    env->SetFloatArrayRegion(result, 0, 8, data);
+    env->SetFloatArrayRegion(result, 0, 9, data);
     return result;
 }
 
@@ -37,15 +39,17 @@ Java_expo_modules_carddetector_CardDetectorFrameProcessorPlugin_detectCornersFro
     env->ReleaseByteArrayElements(grayscaleBytes, bytes, JNI_ABORT);
 
     CardCorners corners;
-    if (!detectCardCorners(grayClone, corners)) return nullptr;
+    // No rectified image for frame processor path — OCR uses high-res photo
+    if (!detectCardCorners(grayClone, corners, nullptr)) return nullptr;
 
-    jfloatArray result = env->NewFloatArray(8);
-    float data[8] = {
+    jfloatArray result = env->NewFloatArray(9);
+    float data[9] = {
         corners.topLeftX,     corners.topLeftY,
         corners.topRightX,    corners.topRightY,
         corners.bottomRightX, corners.bottomRightY,
         corners.bottomLeftX,  corners.bottomLeftY,
+        corners.confidence,
     };
-    env->SetFloatArrayRegion(result, 0, 8, data);
+    env->SetFloatArrayRegion(result, 0, 9, data);
     return result;
 }

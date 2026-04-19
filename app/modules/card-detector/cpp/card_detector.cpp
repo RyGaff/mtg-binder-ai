@@ -170,9 +170,10 @@ bool detectCardCorners(const cv::Mat& image, CardCorners& out,
         if (stats) stats->passedAR++;
 
         // Confidence: 60% area + 20% angle + 20% AR. Portrait target AR = 0.715
-        // (standard MTG card). Area dominates so the true card outline beats
-        // smaller sub-quads even when their angles/AR score well.
-        float areaScore  = (float)std::min(1.0, area / (imageArea * 0.5));
+        // (standard MTG card). Area saturates at 25% image coverage — typical
+        // hand-held card captures sit at 15–25% so this gives real cards a
+        // near-full area score without letting full-frame quads dominate.
+        float areaScore  = (float)std::min(1.0, area / (imageArea * 0.25));
         float angleScore = std::max(0.0f, 1.0f - (totalAngleDev / 4.0f) / 20.0f);
         float arScore    = std::max(0.0f, 1.0f - std::abs(ratio - 0.715f) / 0.165f);
         float confidence = 0.60f * areaScore + 0.20f * angleScore + 0.20f * arScore;

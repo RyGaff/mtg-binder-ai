@@ -317,11 +317,19 @@ function parsePrice(pricesJson: string): string {
 function OcrDebugPanel({
   phase,
   strategy,
+  blText,
+  ocrText,
+  parsed,
+  queryInfo,
 }: {
-  phase:    ScanPhase;
-  strategy: 'set_number' | 'name' | null;
+  phase:     ScanPhase;
+  strategy:  'set_number' | 'name' | null;
+  blText:    string | null;
+  ocrText:   string | null;
+  parsed:    { setCode: string; collectorNumber: string } | null;
+  queryInfo: string | null;
 }) {
-  if (phase.status === 'idle') return null;
+  if (phase.status === 'idle' && !blText && !ocrText) return null;
 
   const strategyLabel = strategy === 'set_number'
     ? 'SET + NUMBER'
@@ -351,6 +359,24 @@ function OcrDebugPanel({
         ]}>
           {statusLabel}
         </Text>
+      )}
+      {blText != null && (
+        <Text style={debugStyles.ocrLine}>
+          BL: {blText.replace(/\n/g, ' | ') || '(empty)'}
+        </Text>
+      )}
+      {parsed && (
+        <Text style={debugStyles.ocrLine}>
+          parsed: {parsed.setCode.toUpperCase()} #{parsed.collectorNumber}
+        </Text>
+      )}
+      {ocrText != null && ocrText !== blText && (
+        <Text style={debugStyles.ocrLine}>
+          NAME: {ocrText.replace(/\n/g, ' | ') || '(empty)'}
+        </Text>
+      )}
+      {queryInfo && (
+        <Text style={debugStyles.ocrLine}>→ {queryInfo}</Text>
       )}
     </View>
   );
@@ -391,6 +417,8 @@ export default function ScanScreen() {
   const [successCard, setSuccessCard] = useState<string | null>(null);
   const [panelOpen, setPanelOpen] = useState(false);
   const [activeRegion, setActiveRegion] = useState<'bl' | 'name' | null>(null);
+  const [parsedInfo, setParsedInfo] = useState<{ setCode: string; collectorNumber: string } | null>(null);
+  const [queryInfo, setQueryInfo] = useState<string | null>(null);
   const [cardPlugin, setCardPlugin] = useState<FrameProcessorPlugin | null>(null);
   const [debugFrames, setDebugFrames] = useState(0);
   const [debugHits, setDebugHits] = useState(0);
@@ -458,16 +486,22 @@ export default function ScanScreen() {
       setBlText(null);
       const photo = await cameraRef.current.takePhoto({ qualityPrioritization: 'speed' });
       const uri = `file://${photo.path}`;
+      setParsedInfo(null);
+      setQueryInfo(null);
       const result = await scanCard(uri, (p) => {
         if (p.step === 'corners_detected') {
           setDetection({ corners: p.corners, imageW: p.imageW, imageH: p.imageH });
           setActiveRegion('bl');
         } else if (p.step === 'bl_ocr_done') {
           setBlText(p.blText);
-          setActiveRegion('name');
+        } else if (p.step === 'bl_parsed') {
+          setParsedInfo(p.parsed);
+          if (!p.parsed) setActiveRegion('name');
+        } else if (p.step === 'fetching') {
+          setQueryInfo(`Scryfall: ${p.query}`);
+          setPhase({ status: 'fetching' });
         } else if (p.step === 'name_ocr_done') {
           setOcrText(p.nameText);
-          setActiveRegion(null);
         }
       }, { width: photo.width, height: photo.height });
       upsertCard(result.card);
@@ -576,6 +610,8 @@ export default function ScanScreen() {
     setBlText(null);
     setPhase({ status: 'scanning' });
 
+    setParsedInfo(null);
+    setQueryInfo(null);
     try {
       const result = await scanCard(asset.uri, (p) => {
         if (p.step === 'corners_detected') {
@@ -583,10 +619,14 @@ export default function ScanScreen() {
           setActiveRegion('bl');
         } else if (p.step === 'bl_ocr_done') {
           setBlText(p.blText);
-          setActiveRegion('name');
+        } else if (p.step === 'bl_parsed') {
+          setParsedInfo(p.parsed);
+          if (!p.parsed) setActiveRegion('name');
+        } else if (p.step === 'fetching') {
+          setQueryInfo(`Scryfall: ${p.query}`);
+          setPhase({ status: 'fetching' });
         } else if (p.step === 'name_ocr_done') {
           setOcrText(p.nameText);
-          setActiveRegion(null);
         }
       });
       upsertCard(result.card);
@@ -785,7 +825,7 @@ export default function ScanScreen() {
           <Image source={{ uri: pickedImageUri }} style={styles.fullScreenImage} resizeMode="contain" />
           {pickedImageOverlay}
           {/* OCR debug panel inside the fullscreen container so it's unambiguously above the image layer */}
-          <OcrDebugPanel phase={phase} strategy={scanStrategy} />
+          <OcrDebugPanel phase={phase} strategy={scanStrategy} blText={blText} ocrText={ocrText} parsed={parsedInfo} queryInfo={queryInfo} />
         </View>
       ) : (
         <>
@@ -804,7 +844,7 @@ export default function ScanScreen() {
             {cameraOverlay}
           </View>
           {/* OCR debug panel — absolute, bottom of screen, above footer */}
-          <OcrDebugPanel phase={phase} strategy={scanStrategy} />
+          <OcrDebugPanel phase={phase} strategy={scanStrategy} blText={blText} ocrText={ocrText} parsed={parsedInfo} queryInfo={queryInfo} />
         </>
       )}
 
@@ -974,6 +1014,12 @@ const debugStyles = StyleSheet.create({
   statusError: {
     color: '#ef5350',
     fontWeight: '600' as const,
+  },
+  ocrLine: {
+    color: 'rgba(255,255,255,0.8)',
+    fontSize: 10,
+    fontFamily: 'monospace',
+    marginTop: 3,
   },
 });
 

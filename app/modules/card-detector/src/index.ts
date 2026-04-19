@@ -14,7 +14,7 @@ export type CardCorners = {
 };
 
 export const CARD_CONFIDENCE_MIN    = 0.35;
-export const CARD_CONFIDENCE_STABLE = 0.55;
+export const CARD_CONFIDENCE_STABLE = 0.45;
 
 type RawCorners = {
   topLeftX:     number; topLeftY:     number;

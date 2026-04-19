@@ -20,8 +20,10 @@ export type ScanResult = {
 
 export type ScanProgress =
   | { step: 'corners_detected'; corners: import('../../modules/card-detector/src').CardCorners; imageW: number; imageH: number }
-  | { step: 'bl_ocr_done'; blText: string }
-  | { step: 'name_ocr_done'; nameText: string };
+  | { step: 'bl_ocr_done';     blText: string }
+  | { step: 'bl_parsed';       parsed: ParsedCard | null }
+  | { step: 'fetching';        query: string }
+  | { step: 'name_ocr_done';   nameText: string };
 
 // Fixed pixel crop regions on the 400×560 rectified card image
 const CROP_BOTTOM_LEFT = { x: 8,  y: 504, w: 130, h: 40 };
@@ -152,9 +154,11 @@ export async function scanCard(
   const blText = await runOcr(blCropUri);
   onProgress?.({ step: 'bl_ocr_done', blText });
   const parsed = parseSetAndNumber(blText);
+  onProgress?.({ step: 'bl_parsed', parsed });
 
   if (parsed) {
     try {
+      onProgress?.({ step: 'fetching', query: `${parsed.setCode.toUpperCase()} #${parsed.collectorNumber}` });
       const card = await fetchCardBySetNumber(parsed.setCode, parsed.collectorNumber);
       return { strategy: 'set_number', card, corners, imageW: imgW, imageH: imgH, ocrText: blText, blText };
     } catch {
@@ -199,6 +203,7 @@ export async function scanCard(
 
   if (!nameLine) throw new Error('No text found in name region');
 
+  onProgress?.({ step: 'fetching', query: `name: ${nameLine.trim()}` });
   const card = await fetchCardByName(nameLine.trim());
   return { strategy: 'name', card, corners, imageW: imgW, imageH: imgH, ocrText: tlText, blText };
 }

@@ -20,7 +20,7 @@ import { upsertCard } from '../../src/db/cards';
 import { useStore } from '../../src/store/useStore';
 import { useTheme } from '../../src/theme/useTheme';
 import type { CardCorners } from '../../modules/card-detector/src';
-import { detectCardCornersInFrame, initCardDetectorPlugin, CARD_CONFIDENCE_MIN, CARD_CONFIDENCE_STABLE } from '../../modules/card-detector/src';
+import { detectCardCornersInFrame, initCardDetectorPlugin, CARD_CONFIDENCE_STABLE } from '../../modules/card-detector/src';
 import type { FrameProcessorPlugin } from 'react-native-vision-camera';
 
 type ScanPhase =
@@ -153,25 +153,70 @@ function CardDetectionOverlay({
     ? 'rgba(0,220,220,1.0)'
     : 'rgba(0,220,220,0.3)';
 
+  // Axis-aligned bounding rectangles are more robust than rotated lines.
+  // The shape/size tells you exactly what the detector picked.
+  const quadBB = {
+    left:   Math.min(tl.x, tr.x, br.x, bl.x),
+    top:    Math.min(tl.y, tr.y, br.y, bl.y),
+    width:  Math.max(tl.x, tr.x, br.x, bl.x) - Math.min(tl.x, tr.x, br.x, bl.x),
+    height: Math.max(tl.y, tr.y, br.y, bl.y) - Math.min(tl.y, tr.y, br.y, bl.y),
+  };
+  const blBB = {
+    left:   Math.min(ocrTL.x, ocrTR.x, ocrBR.x, ocrBL.x),
+    top:    Math.min(ocrTL.y, ocrTR.y, ocrBR.y, ocrBL.y),
+    width:  Math.max(ocrTL.x, ocrTR.x, ocrBR.x, ocrBL.x) - Math.min(ocrTL.x, ocrTR.x, ocrBR.x, ocrBL.x),
+    height: Math.max(ocrTL.y, ocrTR.y, ocrBR.y, ocrBL.y) - Math.min(ocrTL.y, ocrTR.y, ocrBR.y, ocrBL.y),
+  };
+  const nameBB = {
+    left:   Math.min(nameTL.x, nameTR.x, nameBR.x, nameBL.x),
+    top:    Math.min(nameTL.y, nameTR.y, nameBR.y, nameBL.y),
+    width:  Math.max(nameTL.x, nameTR.x, nameBR.x, nameBL.x) - Math.min(nameTL.x, nameTR.x, nameBR.x, nameBL.x),
+    height: Math.max(nameTL.y, nameTR.y, nameBR.y, nameBL.y) - Math.min(nameTL.y, nameTR.y, nameBR.y, nameBL.y),
+  };
+
   return (
     <>
-      {/* Card quad */}
-      <OverlayLine from={tl} to={tr} color="rgba(0,220,220,0.9)" />
-      <OverlayLine from={tr} to={br} color="rgba(0,220,220,0.9)" />
-      <OverlayLine from={br} to={bl} color="rgba(0,220,220,0.9)" />
-      <OverlayLine from={bl} to={tl} color="rgba(0,220,220,0.9)" />
+      {/* Detected card — axis-aligned bounding box of the detected quad */}
+      <View
+        pointerEvents="none"
+        style={{
+          position: 'absolute',
+          left: quadBB.left,
+          top: quadBB.top,
+          width: quadBB.width,
+          height: quadBB.height,
+          borderWidth: 3,
+          borderColor: 'rgba(0,220,220,0.95)',
+        }}
+      />
 
-      {/* OCR region (bottom-left) */}
-      <OverlayLine from={ocrTL} to={ocrTR} color={blColor} thickness={2} />
-      <OverlayLine from={ocrTR} to={ocrBR} color={blColor} thickness={2} />
-      <OverlayLine from={ocrBR} to={ocrBL} color={blColor} thickness={2} />
-      <OverlayLine from={ocrBL} to={ocrTL} color={blColor} thickness={2} />
+      {/* Bottom-left OCR region */}
+      <View
+        pointerEvents="none"
+        style={{
+          position: 'absolute',
+          left: blBB.left,
+          top: blBB.top,
+          width: blBB.width,
+          height: blBB.height,
+          borderWidth: 2,
+          borderColor: blColor,
+        }}
+      />
 
-      {/* Name OCR region (top of card) */}
-      <OverlayLine from={nameTL} to={nameTR} color={nameColor} thickness={2} />
-      <OverlayLine from={nameTR} to={nameBR} color={nameColor} thickness={2} />
-      <OverlayLine from={nameBR} to={nameBL} color={nameColor} thickness={2} />
-      <OverlayLine from={nameBL} to={nameTL} color={nameColor} thickness={2} />
+      {/* Name OCR region */}
+      <View
+        pointerEvents="none"
+        style={{
+          position: 'absolute',
+          left: nameBB.left,
+          top: nameBB.top,
+          width: nameBB.width,
+          height: nameBB.height,
+          borderWidth: 2,
+          borderColor: nameColor,
+        }}
+      />
 
       {/* BL crop text — always shown next to the gold box */}
       {blText != null && (
@@ -232,7 +277,7 @@ function CardDetectionOverlay({
 const SMOOTH_ALPHA = 0.35;
 const STABLE_THRESHOLD = 0.015;
 const STABLE_FRAMES = 8;
-const MISS_FRAMES = 5;
+const MISS_FRAMES = 20;
 
 function emaCorners(prev: CardCorners, next: CardCorners): CardCorners {
   'worklet';
@@ -272,11 +317,19 @@ function parsePrice(pricesJson: string): string {
 function OcrDebugPanel({
   phase,
   strategy,
+  blText,
+  ocrText,
+  parsed,
+  queryInfo,
 }: {
-  phase:    ScanPhase;
-  strategy: 'set_number' | 'name' | null;
+  phase:     ScanPhase;
+  strategy:  'set_number' | 'name' | null;
+  blText:    string | null;
+  ocrText:   string | null;
+  parsed:    { setCode: string; collectorNumber: string } | null;
+  queryInfo: string | null;
 }) {
-  if (phase.status === 'idle') return null;
+  if (phase.status === 'idle' && !blText && !ocrText) return null;
 
   const strategyLabel = strategy === 'set_number'
     ? 'SET + NUMBER'
@@ -306,6 +359,24 @@ function OcrDebugPanel({
         ]}>
           {statusLabel}
         </Text>
+      )}
+      {blText != null && (
+        <Text style={debugStyles.ocrLine}>
+          BL: {blText.replace(/\n/g, ' | ') || '(empty)'}
+        </Text>
+      )}
+      {parsed && (
+        <Text style={debugStyles.ocrLine}>
+          parsed: {parsed.setCode.toUpperCase()} #{parsed.collectorNumber}
+        </Text>
+      )}
+      {ocrText != null && ocrText !== blText && (
+        <Text style={debugStyles.ocrLine}>
+          NAME: {ocrText.replace(/\n/g, ' | ') || '(empty)'}
+        </Text>
+      )}
+      {queryInfo && (
+        <Text style={debugStyles.ocrLine}>→ {queryInfo}</Text>
       )}
     </View>
   );
@@ -346,11 +417,27 @@ export default function ScanScreen() {
   const [successCard, setSuccessCard] = useState<string | null>(null);
   const [panelOpen, setPanelOpen] = useState(false);
   const [activeRegion, setActiveRegion] = useState<'bl' | 'name' | null>(null);
+  const [parsedInfo, setParsedInfo] = useState<{ setCode: string; collectorNumber: string } | null>(null);
+  const [queryInfo, setQueryInfo] = useState<string | null>(null);
   const [cardPlugin, setCardPlugin] = useState<FrameProcessorPlugin | null>(null);
+  const [debugFrames, setDebugFrames] = useState(0);
+  const [debugHits, setDebugHits] = useState(0);
+  const [debugLastConf, setDebugLastConf] = useState<number | null>(null);
+  const [debugPixFmt, setDebugPixFmt] = useState<string | null>(null);
+  const [debugFrameSize, setDebugFrameSize] = useState<{ w: number; h: number } | null>(null);
+  const [debugStats, setDebugStats] = useState<{
+    medianLuma: number; edgePixels: number;
+    contoursTotal: number; passed4Vertex: number; passedMinArea: number;
+    passedConvex: number; passedAngles: number; passedAR: number;
+  } | null>(null);
+  const [debugDetSet, setDebugDetSet] = useState(0);
+  const [debugDetCleared, setDebugDetCleared] = useState(0);
   const cameraRef = useRef<Camera>(null);
 
   useEffect(() => {
-    setCardPlugin(initCardDetectorPlugin());
+    const p = initCardDetectorPlugin();
+    console.log('[CardDetector] plugin init:', p == null ? 'NULL' : 'OK');
+    setCardPlugin(p);
   }, []);
 
   const { setLastScannedId, addRecentScan, recentScans } = useStore();
@@ -399,16 +486,22 @@ export default function ScanScreen() {
       setBlText(null);
       const photo = await cameraRef.current.takePhoto({ qualityPrioritization: 'speed' });
       const uri = `file://${photo.path}`;
+      setParsedInfo(null);
+      setQueryInfo(null);
       const result = await scanCard(uri, (p) => {
         if (p.step === 'corners_detected') {
           setDetection({ corners: p.corners, imageW: p.imageW, imageH: p.imageH });
           setActiveRegion('bl');
         } else if (p.step === 'bl_ocr_done') {
           setBlText(p.blText);
-          setActiveRegion('name');
+        } else if (p.step === 'bl_parsed') {
+          setParsedInfo(p.parsed);
+          if (!p.parsed) setActiveRegion('name');
+        } else if (p.step === 'fetching') {
+          setQueryInfo(`Scryfall: ${p.query}`);
+          setPhase({ status: 'fetching' });
         } else if (p.step === 'name_ocr_done') {
           setOcrText(p.nameText);
-          setActiveRegion(null);
         }
       }, { width: photo.width, height: photo.height });
       upsertCard(result.card);
@@ -431,17 +524,43 @@ export default function ScanScreen() {
     }
   }, [addRecentScan, setLastScannedId, isCapturing]);
 
-  const jsSetDetection = useRunOnJS(setDetection, [setDetection]);
+  const jsSetDetection = useRunOnJS(
+    (d: DetectionInfo | null) => {
+      setDetection(d);
+      if (d) setDebugDetSet(n => n + 1);
+      else   setDebugDetCleared(n => n + 1);
+    },
+    [setDetection],
+  );
   const jsTriggerOcr = useRunOnJS(triggerOcr, [triggerOcr]);
+  const jsDebugTick = useRunOnJS(
+    (
+      hit: boolean,
+      confidence: number | null,
+      pixelFormat: string | null,
+      frameW: number,
+      frameH: number,
+      stats: typeof debugStats,
+    ) => {
+      setDebugFrames(n => n + 1);
+      if (hit) setDebugHits(n => n + 1);
+      setDebugLastConf(confidence);
+      if (pixelFormat) setDebugPixFmt(pixelFormat);
+      if (frameW > 0 && frameH > 0) setDebugFrameSize({ w: frameW, h: frameH });
+      if (stats) setDebugStats(stats);
+    },
+    [],
+  );
 
   const frameProcessor = useFrameProcessor((frame: Frame) => {
     'worklet';
     if (cardPlugin == null) return;
     if (isCapturing.value) return;
 
-    const raw = detectCardCornersInFrame(frame, cardPlugin);
+    const { corners: raw, debug } = detectCardCornersInFrame(frame, cardPlugin);
+    jsDebugTick(raw != null, raw?.confidence ?? null, debug.pixelFormat, debug.frameW, debug.frameH, debug.stats);
 
-    if (raw && raw.confidence >= CARD_CONFIDENCE_MIN) {
+    if (raw) {
       const prev = smoothedCornersWv.value;
       const smoothed = prev ? emaCorners(prev, raw) : raw;
       const stable = prev ? cornersAreStable(prev, smoothed, STABLE_THRESHOLD) : false;
@@ -449,13 +568,13 @@ export default function ScanScreen() {
       smoothedCornersWv.value = smoothed;
       missCount.value = 0;
 
-      // Only count toward stability gate if confidence clears the stable threshold
+      // Stability gate: require confidence >= CARD_CONFIDENCE_STABLE to trigger OCR
       const meetsStableConf = raw.confidence >= CARD_CONFIDENCE_STABLE;
       stableCount.value = (stable && meetsStableConf) ? stableCount.value + 1 : 0;
 
-      // Vision returns corners in portrait-normalized space (iOS embeds device orientation
-      // in CMSampleBuffer). When the buffer is landscape (w > h), swap dimensions so
-      // imageToScreen projects correctly onto the portrait view.
+      // Frame buffer comes from the native side in whatever orientation the camera
+      // produced. When landscape (w > h), swap dims so imageToScreen maps into
+      // the portrait view correctly.
       const landscape = frame.width > frame.height;
       jsSetDetection({
         corners: smoothed,
@@ -469,7 +588,6 @@ export default function ScanScreen() {
         jsTriggerOcr();
       }
     } else {
-      // raw is null or below CARD_CONFIDENCE_MIN
       missCount.value += 1;
       if (missCount.value >= MISS_FRAMES) {
         smoothedCornersWv.value = null;
@@ -477,7 +595,7 @@ export default function ScanScreen() {
         jsSetDetection(null);
       }
     }
-  }, [cardPlugin, isCapturing, smoothedCornersWv, stableCount, missCount, jsTriggerOcr, jsSetDetection]);
+  }, [cardPlugin, isCapturing, smoothedCornersWv, stableCount, missCount, jsTriggerOcr, jsSetDetection, jsDebugTick]);
 
   const pickFromLibrary = useCallback(async () => {
     isCapturing.value = false;
@@ -492,6 +610,8 @@ export default function ScanScreen() {
     setBlText(null);
     setPhase({ status: 'scanning' });
 
+    setParsedInfo(null);
+    setQueryInfo(null);
     try {
       const result = await scanCard(asset.uri, (p) => {
         if (p.step === 'corners_detected') {
@@ -499,10 +619,14 @@ export default function ScanScreen() {
           setActiveRegion('bl');
         } else if (p.step === 'bl_ocr_done') {
           setBlText(p.blText);
-          setActiveRegion('name');
+        } else if (p.step === 'bl_parsed') {
+          setParsedInfo(p.parsed);
+          if (!p.parsed) setActiveRegion('name');
+        } else if (p.step === 'fetching') {
+          setQueryInfo(`Scryfall: ${p.query}`);
+          setPhase({ status: 'fetching' });
         } else if (p.step === 'name_ocr_done') {
           setOcrText(p.nameText);
-          setActiveRegion(null);
         }
       });
       upsertCard(result.card);
@@ -556,8 +680,7 @@ export default function ScanScreen() {
     }
   })();
 
-  // Overlay for picked-image mode (still sits inside the fullScreenImageContainer)
-  const pickedImageOverlay = (
+  const buildOverlay = (cover: boolean) => (
     <View
       style={styles.overlay}
       pointerEvents="none"
@@ -568,7 +691,7 @@ export default function ScanScreen() {
           detection={detection}
           viewW={overlayLayout.width}
           viewH={overlayLayout.height}
-          cover={false}
+          cover={cover}
           ocrText={ocrText}
           blText={blText}
           activeRegion={activeRegion}
@@ -581,9 +704,51 @@ export default function ScanScreen() {
       )}
     </View>
   );
+  const cameraOverlay       = buildOverlay(true);
+  const pickedImageOverlay  = buildOverlay(false);
+
+  // Projected corner coords (for debug readout so we can see where the quad is drawing)
+  const projTL = detection
+    ? imageToScreen(detection.corners.topLeft.x, detection.corners.topLeft.y,
+                    detection.imageW, detection.imageH,
+                    overlayLayout.width, overlayLayout.height, true)
+    : null;
+  const projBR = detection
+    ? imageToScreen(detection.corners.bottomRight.x, detection.corners.bottomRight.y,
+                    detection.imageW, detection.imageH,
+                    overlayLayout.width, overlayLayout.height, true)
+    : null;
 
   return (
     <View style={styles.screen}>
+      {/* Debug overlay — plugin, frames, hits, conf, pixel fmt, per-stage stats */}
+      <View style={debugStyles.devBadge} pointerEvents="none">
+        <Text style={debugStyles.devText}>
+          {'plugin: ' + (cardPlugin == null ? 'NULL' : 'OK') +
+           '\nframes: ' + debugFrames +
+           '\nhits:   ' + debugHits +
+           '\ndSet:   ' + debugDetSet +
+           '\ndClr:   ' + debugDetCleared +
+           '\ndet?:   ' + (detection ? 'YES' : 'no') +
+           '\nconf:   ' + (debugLastConf == null ? '—' : debugLastConf.toFixed(3)) +
+           '\nfmt:    ' + (debugPixFmt ?? '—') +
+           '\nsize:   ' + (debugFrameSize ? debugFrameSize.w + 'x' + debugFrameSize.h : '—') +
+           '\nview:   ' + Math.round(overlayLayout.width) + 'x' + Math.round(overlayLayout.height) +
+           (projTL ? '\ntl:     ' + Math.round(projTL.x) + ',' + Math.round(projTL.y) : '') +
+           (projBR ? '\nbr:     ' + Math.round(projBR.x) + ',' + Math.round(projBR.y) : '') +
+           (debugStats
+              ? '\nmedLum: ' + debugStats.medianLuma +
+                '\nedges:  ' + debugStats.edgePixels +
+                '\ncont:   ' + debugStats.contoursTotal +
+                '\n4vert:  ' + debugStats.passed4Vertex +
+                '\narea:   ' + debugStats.passedMinArea +
+                '\nconv:   ' + debugStats.passedConvex +
+                '\nang:    ' + debugStats.passedAngles +
+                '\nAR:     ' + debugStats.passedAR
+              : '')}
+        </Text>
+      </View>
+
       {/* Error toast — absolute, pinned to top */}
       {phase.status === 'error' && (
         <ErrorToast message={phase.message} />
@@ -660,43 +825,26 @@ export default function ScanScreen() {
           <Image source={{ uri: pickedImageUri }} style={styles.fullScreenImage} resizeMode="contain" />
           {pickedImageOverlay}
           {/* OCR debug panel inside the fullscreen container so it's unambiguously above the image layer */}
-          <OcrDebugPanel phase={phase} strategy={scanStrategy} />
+          <OcrDebugPanel phase={phase} strategy={scanStrategy} blText={blText} ocrText={ocrText} parsed={parsedInfo} queryInfo={queryInfo} />
         </View>
       ) : (
         <>
-          <Camera
-            ref={cameraRef}
-            style={styles.camera}
-            device={device}
-            isActive={!pickedImageUri}
-            frameProcessor={frameProcessor}
-            photo={true}
-          />
-          {/* Detection overlay — sibling of Camera (not child) so it isn't clipped by the native view */}
-          <View
-            style={styles.cameraOverlay}
-            pointerEvents="none"
-            onLayout={handleOverlayLayout}
-          >
-            {detection && (
-              <CardDetectionOverlay
-                detection={detection}
-                viewW={overlayLayout.width}
-                viewH={overlayLayout.height}
-                cover
-                ocrText={ocrText}
-                blText={blText}
-                activeRegion={activeRegion}
-              />
-            )}
-            {statusLabel !== null && (
-              <View style={styles.statusBadge}>
-                <Text style={styles.statusText}>{statusLabel}</Text>
-              </View>
-            )}
+          {/* Camera + overlay share one flex:1 parent so the overlay
+              covers exactly the camera's area (not the header/footer). */}
+          <View style={{ flex: 1 }}>
+            <Camera
+              ref={cameraRef}
+              style={StyleSheet.absoluteFillObject}
+              device={device}
+              isActive={!pickedImageUri}
+              frameProcessor={frameProcessor}
+              photo={true}
+              pixelFormat="yuv"
+            />
+            {cameraOverlay}
           </View>
           {/* OCR debug panel — absolute, bottom of screen, above footer */}
-          <OcrDebugPanel phase={phase} strategy={scanStrategy} />
+          <OcrDebugPanel phase={phase} strategy={scanStrategy} blText={blText} ocrText={ocrText} parsed={parsedInfo} queryInfo={queryInfo} />
         </>
       )}
 
@@ -751,12 +899,6 @@ const styles = StyleSheet.create({
 
   // Camera / image
   camera: { flex: 1 },
-  cameraOverlay: {
-    ...StyleSheet.absoluteFillObject,
-    alignItems: 'center' as const,
-    justifyContent: 'center' as const,
-    paddingBottom: 80,
-  },
   fullScreenImageContainer: {
     ...StyleSheet.absoluteFillObject,
     zIndex: 10,
@@ -766,11 +908,7 @@ const styles = StyleSheet.create({
 
   // Overlay sits on top of camera feed
   overlay: {
-    flex: 1,
-    alignItems: 'center',
-    justifyContent: 'center',
-    gap: 12,
-    paddingBottom: 80,
+    ...StyleSheet.absoluteFillObject,
   },
 
   // Error toast pinned to top
@@ -823,6 +961,21 @@ const styles = StyleSheet.create({
 });
 
 const debugStyles = StyleSheet.create({
+  devBadge: {
+    position: 'absolute',
+    top: 60,
+    left: 10,
+    zIndex: 999,
+    backgroundColor: 'rgba(0,0,0,0.82)',
+    padding: 6,
+    borderRadius: 6,
+  },
+  devText: {
+    color: '#0f0',
+    fontSize: 11,
+    fontFamily: 'monospace',
+    lineHeight: 14,
+  },
   panel: {
     position: 'absolute',
     bottom: 96,
@@ -861,6 +1014,12 @@ const debugStyles = StyleSheet.create({
   statusError: {
     color: '#ef5350',
     fontWeight: '600' as const,
+  },
+  ocrLine: {
+    color: 'rgba(255,255,255,0.8)',
+    fontSize: 10,
+    fontFamily: 'monospace',
+    marginTop: 3,
   },
 });
 

@@ -17,6 +17,9 @@ export type EmbeddingIndex = {
   byName:    Map<string, string>;  // empty for v2
 };
 
+// Magic bytes on disk spell "MTGE" in natural order: 0x4D 0x54 0x47 0x45.
+// Read as big-endian so the integer constant visually matches the ASCII.
+// Writers MUST lay down bytes as [0x4D, 0x54, 0x47, 0x45] regardless of host endianness.
 const MAGIC_MTGE = 0x4D544745;
 
 let cachedText: EmbeddingIndex | null = null;
@@ -69,7 +72,9 @@ export function parseEmbeddingBuffer(buffer: ArrayBuffer): EmbeddingIndex {
     throw new RangeError(`Embedding buffer too small: ${buffer.byteLength} bytes`);
   }
   const view = new DataView(buffer);
-  const first = view.getUint32(0, true);
+  // Magic read big-endian so on-disk bytes [0x4D,0x54,0x47,0x45] spell "MTGE".
+  // All other multi-byte fields are little-endian.
+  const first = view.getUint32(0, false);
 
   if (first === MAGIC_MTGE) {
     return parseV2(buffer, view);

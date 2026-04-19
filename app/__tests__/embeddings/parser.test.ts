@@ -83,7 +83,7 @@ function buildV2Buffer(records: Array<{ id: string; vec: number[] }>, modelHash 
   const recSize = 36 + dim * 4;
   const buf = new ArrayBuffer(20 + records.length * recSize);
   const view = new DataView(buf);
-  view.setUint32(0,  0x4D544745, true); // 'MTGE' magic
+  view.setUint32(0,  0x4D544745, false); // 'MTGE' magic (bytes 0x4D,0x54,0x47,0x45 on disk)
   view.setUint32(4,  2, true);           // version 2
   view.setUint32(8,  records.length, true);
   view.setUint32(12, dim, true);
@@ -179,14 +179,14 @@ describe('parseEmbeddingBuffer bounds checking', () => {
 
   it('throws RangeError for a v2 buffer smaller than the 20-byte header', () => {
     const buf = new ArrayBuffer(4);
-    new DataView(buf).setUint32(0, 0x4D544745, true);
+    new DataView(buf).setUint32(0, 0x4D544745, false);
     expect(() => parseEmbeddingBuffer(buf)).toThrow(RangeError);
   });
 
   it('throws RangeError for an unsupported v2 sub-version', () => {
     const buf = new ArrayBuffer(20);
     const v = new DataView(buf);
-    v.setUint32(0, 0x4D544745, true);  // magic
+    v.setUint32(0, 0x4D544745, false);  // magic (big-endian ⇒ bytes spell "MTGE")
     v.setUint32(4, 3, true);            // future version
     v.setUint32(8, 0, true);
     v.setUint32(12, 256, true);

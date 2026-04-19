@@ -48,7 +48,7 @@ export async function getImageEmbeddingMap(): Promise<EmbeddingIndex> {
   return pendingImage;
 }
 
-async function loadFile(file: any): Promise<EmbeddingIndex> {
+async function loadFile(file: File): Promise<EmbeddingIndex> {
   const buf = await file.arrayBuffer();
   return parseEmbeddingBuffer(buf);
 }
@@ -65,6 +65,9 @@ async function loadFile(file: any): Promise<EmbeddingIndex> {
  *   N × [36 bytes id] [64 bytes name] [D × float32]
  */
 export function parseEmbeddingBuffer(buffer: ArrayBuffer): EmbeddingIndex {
+  if (buffer.byteLength < 4) {
+    throw new RangeError(`Embedding buffer too small: ${buffer.byteLength} bytes`);
+  }
   const view = new DataView(buffer);
   const first = view.getUint32(0, true);
 
@@ -75,7 +78,13 @@ export function parseEmbeddingBuffer(buffer: ArrayBuffer): EmbeddingIndex {
 }
 
 function parseV2(buffer: ArrayBuffer, view: DataView): EmbeddingIndex {
+  if (buffer.byteLength < 20) {
+    throw new RangeError(`v2 buffer too small for header: ${buffer.byteLength} bytes`);
+  }
   const version   = view.getUint32(4, true);
+  if (version !== 2) {
+    throw new RangeError(`Unsupported v2 sub-version: ${version}`);
+  }
   const n         = view.getUint32(8, true);
   const dim       = view.getUint32(12, true);
   const modelHash = view.getUint32(16, true);
@@ -90,7 +99,7 @@ function parseV2(buffer: ArrayBuffer, view: DataView): EmbeddingIndex {
     byId.set(id, normalize(raw));
   }
 
-  return { version: version as 1 | 2, dim, modelHash, byId, byName: new Map() };
+  return { version: 2, dim, modelHash, byId, byName: new Map() };
 }
 
 function parseV1(buffer: ArrayBuffer, view: DataView): EmbeddingIndex {

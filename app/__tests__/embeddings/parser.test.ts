@@ -171,3 +171,26 @@ describe('normalize', () => {
     expect(v[1]).toBe(4);
   });
 });
+
+describe('parseEmbeddingBuffer bounds checking', () => {
+  it('throws RangeError for a buffer smaller than 4 bytes', () => {
+    expect(() => parseEmbeddingBuffer(new ArrayBuffer(3))).toThrow(RangeError);
+  });
+
+  it('throws RangeError for a v2 buffer smaller than the 20-byte header', () => {
+    const buf = new ArrayBuffer(4);
+    new DataView(buf).setUint32(0, 0x4D544745, true);
+    expect(() => parseEmbeddingBuffer(buf)).toThrow(RangeError);
+  });
+
+  it('throws RangeError for an unsupported v2 sub-version', () => {
+    const buf = new ArrayBuffer(20);
+    const v = new DataView(buf);
+    v.setUint32(0, 0x4D544745, true);  // magic
+    v.setUint32(4, 3, true);            // future version
+    v.setUint32(8, 0, true);
+    v.setUint32(12, 256, true);
+    v.setUint32(16, 0, true);
+    expect(() => parseEmbeddingBuffer(buf)).toThrow(RangeError);
+  });
+});

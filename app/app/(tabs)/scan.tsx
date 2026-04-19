@@ -15,7 +15,7 @@ import { useSharedValue, useRunOnJS } from 'react-native-worklets-core';
 import * as ImagePicker from 'expo-image-picker';
 import { useRef, useState, useCallback, useEffect } from 'react';
 import { useRouter } from 'expo-router';
-import { scanCard, scanCardByImage } from '../../src/scanner/ocr';
+import { scanCard, scanCardByImage, MATCH_ACCEPT } from '../../src/scanner/ocr';
 import { upsertCard } from '../../src/db/cards';
 import { clearSessionCardCache } from '../../src/api/cards';
 import { useStore } from '../../src/store/useStore';
@@ -407,7 +407,7 @@ export default function ScanScreen() {
       // Try image-embedding identification first. Dormant until the encoder +
       // embeddings are shipped — returns null and we fall through to OCR.
       const imageResult = await scanCardByImage(uri);
-      if (imageResult && imageResult.match.score >= 0.75) {
+      if (imageResult && imageResult.match.score >= MATCH_ACCEPT) {
         upsertCard(imageResult.card);
         addRecentScan(imageResult.card);
         setLastScannedId(imageResult.card.scryfall_id);

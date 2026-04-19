@@ -215,7 +215,7 @@ export async function scanCard(
 import { findCardByImage, ImageMatch } from '../embeddings/imageSearch';
 
 /** Threshold above which we auto-commit the top-1 match. */
-const MATCH_ACCEPT = 0.75;
+export const MATCH_ACCEPT = 0.75;
 /** Threshold below which we reject the match and fall back to OCR. */
 const MATCH_MIN    = 0.55;
 

@@ -11,10 +11,15 @@ const sessionCache: Map<string, CachedCard> = new Map();
 
 /**
  * Resolve a full card record given a Scryfall id. Tries:
- *   1. Session cache  (~1 ms)
+ *   1. Session cache  (~1 ms) — bypasses staleness by design: a card
+ *      already returned this session is trusted for the session.
  *   2. Local SQLite   (~5 ms) — only if row is fresh
  *   3. Scryfall API   (~200 ms, requires network)
  * On Scryfall hit, writes through to both the DB and the session cache.
+ *
+ * @throws propagates network / HTTP errors from fetchCardById when the
+ *         session cache misses, the DB row is absent or stale, AND the
+ *         Scryfall call fails.
  */
 export async function resolveCardById(scryfallId: string): Promise<CachedCard> {
   const cached = sessionCache.get(scryfallId);
@@ -27,7 +32,11 @@ export async function resolveCardById(scryfallId: string): Promise<CachedCard> {
   }
 
   const fresh = await fetchCardById(scryfallId);
-  db.upsertCard(fresh);
+  try {
+    db.upsertCard(fresh);
+  } catch (err) {
+    console.warn('[resolveCardById] DB upsert failed, session cache still populated:', err);
+  }
   sessionCache.set(scryfallId, fresh);
   return fresh;
 }

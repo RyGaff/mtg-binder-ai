@@ -209,3 +209,35 @@ export async function scanCard(
   const hydrated = await resolveCardById(card.scryfall_id);
   return { strategy: 'name', card: hydrated, corners, imageW: imgW, imageH: imgH, ocrText: tlText, blText };
 }
+
+// ── Public: scanCardByImage ───────────────────────────────────────────────────
+
+import { findCardByImage, ImageMatch } from '../embeddings/imageSearch';
+
+/** Threshold above which we auto-commit the top-1 match. */
+const MATCH_ACCEPT = 0.75;
+/** Threshold below which we reject the match and fall back to OCR. */
+const MATCH_MIN    = 0.55;
+
+export type ImageScanResult = {
+  strategy: 'image';
+  match:    ImageMatch;
+  card:     CachedCard;
+};
+
+/**
+ * Try image-embedding identification. Returns null when:
+ *   - The encoder or embeddings are not ready (no artifacts bundled)
+ *   - The top-1 match score is below MATCH_MIN (too uncertain)
+ *
+ * Above MATCH_ACCEPT, the caller should auto-commit. Between MATCH_MIN
+ * and MATCH_ACCEPT, the match is returned so the UI can choose whether
+ * to show a top-3 chooser.
+ */
+export async function scanCardByImage(uri: string): Promise<ImageScanResult | null> {
+  const match = await findCardByImage(uri);
+  if (!match) return null;
+  if (match.score < MATCH_MIN) return null;
+  const card = await resolveCardById(match.scryfallId);
+  return { strategy: 'image', match, card };
+}

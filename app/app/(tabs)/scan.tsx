@@ -15,8 +15,9 @@ import { useSharedValue, useRunOnJS } from 'react-native-worklets-core';
 import * as ImagePicker from 'expo-image-picker';
 import { useRef, useState, useCallback, useEffect } from 'react';
 import { useRouter } from 'expo-router';
-import { scanCard } from '../../src/scanner/ocr';
+import { scanCard, scanCardByImage } from '../../src/scanner/ocr';
 import { upsertCard } from '../../src/db/cards';
+import { clearSessionCardCache } from '../../src/api/cards';
 import { useStore } from '../../src/store/useStore';
 import { useTheme } from '../../src/theme/useTheme';
 import type { CardCorners } from '../../modules/card-detector/src';
@@ -353,6 +354,10 @@ export default function ScanScreen() {
     setCardPlugin(initCardDetectorPlugin());
   }, []);
 
+  useEffect(() => {
+    return () => { clearSessionCardCache(); };
+  }, []);
+
   const { setLastScannedId, addRecentScan, recentScans } = useStore();
 
   // Worklet-safe shared values — written on the frame processor thread
@@ -399,6 +404,20 @@ export default function ScanScreen() {
       setBlText(null);
       const photo = await cameraRef.current.takePhoto({ qualityPrioritization: 'speed' });
       const uri = `file://${photo.path}`;
+      // Try image-embedding identification first. Dormant until the encoder +
+      // embeddings are shipped — returns null and we fall through to OCR.
+      const imageResult = await scanCardByImage(uri);
+      if (imageResult && imageResult.match.score >= 0.75) {
+        upsertCard(imageResult.card);
+        addRecentScan(imageResult.card);
+        setLastScannedId(imageResult.card.scryfall_id);
+        setSuccessCard(imageResult.card.name);
+        setPhase({ status: 'idle' });
+        await new Promise<void>(r => setTimeout(r, 1500));
+        setSuccessCard(null);
+        return;
+      }
+
       const result = await scanCard(uri, (p) => {
         if (p.step === 'corners_detected') {
           setDetection({ corners: p.corners, imageW: p.imageW, imageH: p.imageH });

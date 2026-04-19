@@ -22,6 +22,15 @@ jest.mock('../../src/api/scryfall', () => ({
   fetchCardByName: jest.fn(),
 }));
 
+jest.mock('../../src/api/cards', () => ({
+  resolveCardById: jest.fn(async (id: string) => ({
+    scryfall_id: id, name: 'Lightning Bolt', set_code: 'lea',
+    collector_number: '161', mana_cost: '{R}', type_line: 'Instant',
+    oracle_text: '', color_identity: '[]', image_uri: '',
+    prices: '{}', keywords: '[]', cached_at: 0,
+  })),
+}));
+
 import { parseSetAndNumber, scanCard } from '../../src/scanner/ocr';
 import { detectCardCorners } from '../../modules/card-detector/src';
 import * as ImageManipulator from 'expo-image-manipulator';

@@ -2,6 +2,7 @@ import * as ImageManipulator from 'expo-image-manipulator';
 import { File, Paths } from 'expo-file-system';
 import { detectCardCorners } from '../../modules/card-detector/src';
 import { fetchCardBySetNumber, fetchCardByName } from '../api/scryfall';
+import { resolveCardById } from '../api/cards';
 import type { CachedCard } from '../db/cards';
 
 // ── Types ────────────────────────────────────────────────────────────────────
@@ -156,7 +157,9 @@ export async function scanCard(
   if (parsed) {
     try {
       const card = await fetchCardBySetNumber(parsed.setCode, parsed.collectorNumber);
-      return { strategy: 'set_number', card, corners, imageW: imgW, imageH: imgH, ocrText: blText, blText };
+      // Warm the session cache; later scans of the same card will skip Scryfall.
+      const hydrated = await resolveCardById(card.scryfall_id);
+      return { strategy: 'set_number', card: hydrated, corners, imageW: imgW, imageH: imgH, ocrText: blText, blText };
     } catch {
       // Scryfall 404 or network error — fall through to name strategy
     }
@@ -200,5 +203,6 @@ export async function scanCard(
   if (!nameLine) throw new Error('No text found in name region');
 
   const card = await fetchCardByName(nameLine.trim());
-  return { strategy: 'name', card, corners, imageW: imgW, imageH: imgH, ocrText: tlText, blText };
+  const hydrated = await resolveCardById(card.scryfall_id);
+  return { strategy: 'name', card: hydrated, corners, imageW: imgW, imageH: imgH, ocrText: tlText, blText };
 }

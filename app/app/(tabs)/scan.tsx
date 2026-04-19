@@ -646,22 +646,6 @@ export default function ScanScreen() {
       pointerEvents="none"
       onLayout={handleOverlayLayout}
     >
-      {/* RENDER TEST — always-visible yellow box. If you don't see this, child
-          rendering is broken inside the Camera's overlay layer entirely. */}
-      <View
-        pointerEvents="none"
-        style={{
-          position: 'absolute',
-          left: 20,
-          top: 300,
-          width: 120,
-          height: 120,
-          borderWidth: 4,
-          borderColor: 'yellow',
-          backgroundColor: 'rgba(255,255,0,0.2)',
-        }}
-      />
-
       {detection && (
         <CardDetectionOverlay
           detection={detection}

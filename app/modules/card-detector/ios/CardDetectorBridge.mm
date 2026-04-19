@@ -24,6 +24,33 @@ static cv::Mat matFromUIImage(UIImage *image) {
     CGContextRelease(ctx);
     cv::Mat bgr;
     cv::cvtColor(rgba, bgr, cv::COLOR_RGBA2BGR);
+
+    // takePhoto() and library images carry EXIF orientation on iOS.
+    // CGImage returns the *unoriented* sensor bitmap, so for portrait photos
+    // the Mat is landscape unless we apply the orientation manually.
+    switch (image.imageOrientation) {
+        case UIImageOrientationRight: {
+            cv::Mat r;
+            cv::rotate(bgr, r, cv::ROTATE_90_CLOCKWISE);
+            bgr = r;
+            break;
+        }
+        case UIImageOrientationLeft: {
+            cv::Mat r;
+            cv::rotate(bgr, r, cv::ROTATE_90_COUNTERCLOCKWISE);
+            bgr = r;
+            break;
+        }
+        case UIImageOrientationDown: {
+            cv::Mat r;
+            cv::rotate(bgr, r, cv::ROTATE_180);
+            bgr = r;
+            break;
+        }
+        case UIImageOrientationUp:
+        default:
+            break;
+    }
     return bgr;
 }
 
@@ -193,37 +220,79 @@ static NSDictionary<NSString *, id> *cornersToDict(
 }
 
 + (nullable NSDictionary<NSString *, id> *)detectCornersFromFileURI:(NSString *)uri {
-    NSString *path = [uri hasPrefix:@"file://"] ? [uri substringFromIndex:7] : uri;
+    // Handle any combination of "file://" / "file:///" prefixes VisionCamera
+    // or other callers might hand us.
+    NSString *path = uri;
+    if ([path hasPrefix:@"file://"]) {
+        NSURL *url = [NSURL URLWithString:path];
+        if (url && url.isFileURL) {
+            path = url.path;
+        } else {
+            path = [path substringFromIndex:7];
+        }
+    }
+    BOOL exists = [[NSFileManager defaultManager] fileExistsAtPath:path];
+    NSLog(@"[CardDetector] photo uri=%@ path=%@ exists=%d", uri, path, exists);
+
     UIImage *uiImage = [UIImage imageWithContentsOfFile:path];
-    if (!uiImage || !uiImage.CGImage) return nil;
+    if (!uiImage || !uiImage.CGImage) {
+        return @{
+            @"_error": @"uiimage_load_failed",
+            @"resolvedPath": path,
+            @"fileExists":   @(exists),
+        };
+    }
+    NSLog(@"[CardDetector] photo size=%.0fx%.0f orient=%ld",
+          uiImage.size.width, uiImage.size.height, (long)uiImage.imageOrientation);
 
     cv::Mat bgr = matFromUIImage(uiImage);
-    if (bgr.empty()) return nil;
+    if (bgr.empty()) {
+        return @{ @"_error": @"cvmat_convert_failed" };
+    }
+
+    // Defensive: if EXIF orientation was absent/baked-in-place and the Mat
+    // is still landscape, rotate to portrait.
+    if (bgr.cols > bgr.rows) {
+        cv::Mat r;
+        cv::rotate(bgr, r, cv::ROTATE_90_CLOCKWISE);
+        bgr = r;
+        NSLog(@"[CardDetector] photo fallback-rotated to %dx%d", bgr.cols, bgr.rows);
+    }
 
     // Downscale very large photos (takePhoto can yield 4032×3024). Keeping the
     // long edge ~1920 makes the 3% minArea threshold meaningful for a normal-sized
-    // card and runs ~10x faster. We keep the rectified warp on the original for
-    // quality — we just rescale the detection corners back up at the end.
-    double origCols = bgr.cols;
-    double origRows = bgr.rows;
-    double longEdge = std::max(origCols, origRows);
-    double scale    = 1.0;
+    // card and runs ~10x faster.
+    double longEdge = std::max((double)bgr.cols, (double)bgr.rows);
     cv::Mat bgrSmall;
     if (longEdge > 1920.0) {
-        scale = 1920.0 / longEdge;
+        double scale = 1920.0 / longEdge;
         cv::resize(bgr, bgrSmall, cv::Size(), scale, scale, cv::INTER_AREA);
     } else {
         bgrSmall = bgr;
     }
+    NSLog(@"[CardDetector] photo processed mat=%dx%d", bgrSmall.cols, bgrSmall.rows);
 
     NSString *rectPath = [path stringByAppendingString:@".rect.jpg"];
     std::string rectPathStr = rectPath.UTF8String;
 
     CardCorners corners;
-    // Detection runs on downscaled image — corners are normalized 0–1 so they
-    // apply equally well to the original. Rectified warp is performed on the
-    // downscaled image as well, which is fine since we downsize to 400×560.
-    if (!detectCardCorners(bgrSmall, corners, &rectPathStr)) return nil;
+    DetectionStats stats;
+    if (!detectCardCorners(bgrSmall, corners, &rectPathStr, &stats)) {
+        NSLog(@"[CardDetector] photo detect FAIL: contours=%d 4vert=%d area=%d conv=%d ang=%d AR=%d",
+              stats.contoursTotal, stats.passed4Vertex, stats.passedMinArea,
+              stats.passedConvex, stats.passedAngles, stats.passedAR);
+        return @{
+            @"_error": @"detect_failed",
+            @"stats": @{
+                @"contoursTotal": @(stats.contoursTotal),
+                @"passed4Vertex": @(stats.passed4Vertex),
+                @"passedMinArea": @(stats.passedMinArea),
+                @"passedConvex":  @(stats.passedConvex),
+                @"passedAngles":  @(stats.passedAngles),
+                @"passedAR":      @(stats.passedAR),
+            },
+        };
+    }
 
     NSFileManager *fm = [NSFileManager defaultManager];
     NSString *rectUri = [fm fileExistsAtPath:rectPath]

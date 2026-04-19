@@ -14,7 +14,7 @@ export type CardCorners = {
 };
 
 export const CARD_CONFIDENCE_MIN    = 0.35;
-export const CARD_CONFIDENCE_STABLE = 0.65;
+export const CARD_CONFIDENCE_STABLE = 0.55;
 
 type RawCorners = {
   topLeftX:     number; topLeftY:     number;
@@ -38,8 +38,23 @@ function parseRaw(raw: RawCorners): CardCorners {
 
 export async function detectCardCorners(imageUri: string): Promise<CardCorners | null> {
   const Native = requireNativeModule('CardDetector');
-  const raw: RawCorners | null = await Native.detectCardCorners(imageUri);
+  const raw: RawCorners & {
+    _error?: string;
+    resolvedPath?: string;
+    fileExists?: boolean;
+    stats?: Record<string, number>;
+  } | null = await Native.detectCardCorners(imageUri);
   if (!raw) return null;
+  if (raw._error) {
+    const s = raw.stats ?? {};
+    const statStr = raw.stats
+      ? ` [cont=${s.contoursTotal} 4v=${s.passed4Vertex} area=${s.passedMinArea} conv=${s.passedConvex} ang=${s.passedAngles} AR=${s.passedAR}]`
+      : '';
+    const pathStr = raw.resolvedPath
+      ? ` path=${raw.resolvedPath} exists=${raw.fileExists}`
+      : '';
+    throw new Error(`Photo detection failed: ${raw._error}${statStr}${pathStr}`);
+  }
   return parseRaw(raw);
 }
 

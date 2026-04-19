@@ -89,6 +89,10 @@ bool detectCardCorners(const cv::Mat& image, CardCorners& out,
     // Cover-mode display crops a lot of the native frame, so cards often occupy
     // only ~5–8% of the raw 1920×1080 buffer. 3% keeps room for that.
     double minArea   = imageArea * 0.03;
+    // Reject contours spanning most of the image — they're the video-frame
+    // edge itself. 70% comfortably excludes full-frame (~84–100%) while still
+    // allowing tightly-framed card captures.
+    double maxArea   = imageArea * 0.70;
 
     if (stats) stats->contoursTotal = (int)contours.size();
 
@@ -96,30 +100,45 @@ bool detectCardCorners(const cv::Mat& image, CardCorners& out,
     float bestConf = -1.0f;
 
     for (const auto& contour : contours) {
-        // Take the convex hull first so minor edge noise / inward notches
-        // don't inflate the vertex count. MTG cards have rounded corners that
-        // approxPolyDP can round off into spurious extra vertices — the hull
-        // collapses those reliably.
+        // Convex hull first — collapses edge noise/rounded corners so the
+        // following approximation gets near-rectangular polygons.
         std::vector<cv::Point> hull;
         cv::convexHull(contour, hull);
         double perimeter = cv::arcLength(hull, true);
         std::vector<cv::Point> approx;
         cv::approxPolyDP(hull, approx, 0.04 * perimeter, true);
-        if (approx.size() != 4) continue;
-        if (stats) stats->passed4Vertex++;
-
-        double area = cv::contourArea(approx);
-        if (area < minArea) continue;
-        if (stats) stats->passedMinArea++;
-
-        // Convexity check
-        if (!cv::isContourConvex(approx)) continue;
-        if (stats) stats->passedConvex++;
 
         std::vector<cv::Point2f> pts2f;
-        pts2f.reserve(4);
-        for (const auto& p : approx)
-            pts2f.push_back(cv::Point2f((float)p.x, (float)p.y));
+        if (approx.size() == 4) {
+            // Clean 4-vertex quad — use corners directly for best perspective warp.
+            for (const auto& p : approx)
+                pts2f.push_back(cv::Point2f((float)p.x, (float)p.y));
+        } else if (approx.size() >= 5 && approx.size() <= 10) {
+            // Card contour sometimes reduces to 5–8 vertices (rounded corners,
+            // edge noise, foil effects). Fall back to the min-area rectangle of
+            // the hull, but require the hull to fill >=88% of that rect so we
+            // don't accept random blobs whose bounding rect happens to be big.
+            cv::RotatedRect minRect = cv::minAreaRect(hull);
+            double rectArea = (double)minRect.size.width * minRect.size.height;
+            if (rectArea < 1.0) continue;
+            double hullArea = cv::contourArea(hull);
+            if (hullArea / rectArea < 0.88) continue;
+            cv::Point2f rectPts[4];
+            minRect.points(rectPts);
+            for (int i = 0; i < 4; i++) pts2f.push_back(rectPts[i]);
+        } else {
+            continue;
+        }
+        if (stats) stats->passed4Vertex++;
+
+        double area = cv::contourArea(pts2f);
+        if (area < minArea || area > maxArea) continue;
+        if (stats) stats->passedMinArea++;
+
+        // Convexity — hull is convex by construction, but approxPolyDP or
+        // minAreaRect output should still pass; keep the check as a safety net.
+        if (!cv::isContourConvex(pts2f)) continue;
+        if (stats) stats->passedConvex++;
 
         auto sorted = sortCorners(pts2f);
 

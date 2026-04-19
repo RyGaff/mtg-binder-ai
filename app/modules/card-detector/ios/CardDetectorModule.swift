@@ -11,5 +11,9 @@ public class CardDetectorModule: Module {
         AsyncFunction("detectCardCorners") { (uri: String) -> [String: Any]? in
             return CardDetectorBridge.detectCorners(fromFileURI: uri) as? [String: Any]
         }
+
+        AsyncFunction("encodeImage") { (uri: String) -> [NSNumber]? in
+            return CardDetectorBridge.encodeImage(fromFileURI: uri)
+        }
     }
 }

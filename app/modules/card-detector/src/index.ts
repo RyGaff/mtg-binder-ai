@@ -124,3 +124,16 @@ export function detectCardCornersInFrame(
     debug,
   };
 }
+
+/**
+ * Run the bundled image encoder on the file at `imageUri`. Returns a
+ * 256-length Float32Array (L2-normalized by the model) or null when the
+ * encoder asset is not bundled in this build, the image can't be decoded,
+ * or the native call fails.
+ */
+export async function encodeImage(imageUri: string): Promise<Float32Array | null> {
+  const Native = requireNativeModule('CardDetector');
+  const raw: number[] | null = await Native.encodeImage(imageUri);
+  if (!raw) return null;
+  return new Float32Array(raw);
+}

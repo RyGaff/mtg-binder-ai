@@ -15,8 +15,9 @@ import { useSharedValue, useRunOnJS } from 'react-native-worklets-core';
 import * as ImagePicker from 'expo-image-picker';
 import { useRef, useState, useCallback, useEffect } from 'react';
 import { useRouter } from 'expo-router';
-import { scanCard } from '../../src/scanner/ocr';
+import { scanCard, scanCardByImage, MATCH_ACCEPT } from '../../src/scanner/ocr';
 import { upsertCard } from '../../src/db/cards';
+import { clearSessionCardCache } from '../../src/api/cards';
 import { useStore } from '../../src/store/useStore';
 import { useTheme } from '../../src/theme/useTheme';
 import type { CardCorners } from '../../modules/card-detector/src';
@@ -438,6 +439,10 @@ export default function ScanScreen() {
     const p = initCardDetectorPlugin();
     console.log('[CardDetector] plugin init:', p == null ? 'NULL' : 'OK');
     setCardPlugin(p);
+  }, []);
+
+  useEffect(() => {
+    return () => { clearSessionCardCache(); };
   }, []);
 
   const { setLastScannedId, addRecentScan, recentScans } = useStore();

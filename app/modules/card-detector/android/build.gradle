@@ -32,4 +32,6 @@ dependencies {
     implementation 'org.opencv:opencv:4.9.0'
     implementation "org.jetbrains.kotlin:kotlin-stdlib-jdk7:$kotlin_version"
     implementation 'com.mrousavy.camera:react-native-vision-camera:4.+'
+    // tensorflow-lite-support omitted — pixel extraction done manually via Bitmap.getPixels.
+    implementation 'org.tensorflow:tensorflow-lite:2.14.0'
 }

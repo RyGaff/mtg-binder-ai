@@ -22,10 +22,20 @@ jest.mock('../../src/api/scryfall', () => ({
   fetchCardByName: jest.fn(),
 }));
 
+jest.mock('../../src/api/cards', () => ({
+  resolveCardById: jest.fn(async (id: string) => ({
+    scryfall_id: id, name: 'Lightning Bolt', set_code: 'lea',
+    collector_number: '161', mana_cost: '{R}', type_line: 'Instant',
+    oracle_text: '', color_identity: '[]', image_uri: '',
+    prices: '{}', keywords: '[]', cached_at: 0,
+  })),
+}));
+
 import { parseSetAndNumber, scanCard } from '../../src/scanner/ocr';
 import { detectCardCorners } from '../../modules/card-detector/src';
 import * as ImageManipulator from 'expo-image-manipulator';
 import { fetchCardBySetNumber, fetchCardByName } from '../../src/api/scryfall';
+import { resolveCardById } from '../../src/api/cards';
 import TextRecognition from 'react-native-text-recognition';
 
 const mockDetect = detectCardCorners as jest.Mock;
@@ -33,6 +43,7 @@ const mockManipulate = ImageManipulator.manipulateAsync as jest.Mock;
 const mockRecognize = (TextRecognition as any).recognize as jest.Mock;
 const mockFetchBySet = fetchCardBySetNumber as jest.Mock;
 const mockFetchByName = fetchCardByName as jest.Mock;
+const mockResolveById = resolveCardById as jest.Mock;
 
 const CORNERS: import('../../modules/card-detector/src').CardCorners = {
   topLeft:     { x: 0.1, y: 0.1 },
@@ -122,6 +133,7 @@ describe('scanCard', () => {
     expect(result.strategy).toBe('set_number');
     expect(result.card.name).toBe('Lightning Bolt');
     expect(mockFetchBySet).toHaveBeenCalledWith('lea', '161');
+    expect(mockResolveById).toHaveBeenCalledWith(MOCK_CARD.scryfall_id);
     expect(mockFetchByName).not.toHaveBeenCalled();
   });
 
@@ -137,6 +149,7 @@ describe('scanCard', () => {
     expect(result.strategy).toBe('name');
     expect(result.card.name).toBe('Lightning Bolt');
     expect(mockFetchByName).toHaveBeenCalledWith('Lightning Bolt');
+    expect(mockResolveById).toHaveBeenCalledWith(MOCK_CARD.scryfall_id);
   });
 
   it('falls through to name strategy when Scryfall 404 on set/number', async () => {
@@ -151,6 +164,7 @@ describe('scanCard', () => {
 
     expect(result.strategy).toBe('name');
     expect(mockFetchByName).toHaveBeenCalledWith('Lightning Bolt');
+    expect(mockResolveById).toHaveBeenCalledWith(MOCK_CARD.scryfall_id);
   });
 
   it('throws when name region OCR returns no text', async () => {

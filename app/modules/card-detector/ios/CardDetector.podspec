@@ -12,6 +12,7 @@ Pod::Spec.new do |s|
   s.source         = { :path => '.' }
   s.source_files   = '*.swift', '*.h', '*.mm'
   s.frameworks     = 'CoreMedia', 'CoreImage', 'UIKit'
+  s.weak_frameworks = 'CoreML'
   s.dependency 'ExpoModulesCore'
   s.dependency 'VisionCamera'
   s.dependency 'OpenCV2', '~> 4.3.0'

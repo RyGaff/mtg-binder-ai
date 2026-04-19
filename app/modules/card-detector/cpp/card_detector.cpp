@@ -89,10 +89,11 @@ bool detectCardCorners(const cv::Mat& image, CardCorners& out,
     // Cover-mode display crops a lot of the native frame, so cards often occupy
     // only ~5–8% of the raw 1920×1080 buffer. 3% keeps room for that.
     double minArea   = imageArea * 0.03;
-    // Reject contours spanning most of the image — they're the video-frame
-    // edge itself. 70% comfortably excludes full-frame (~84–100%) while still
-    // allowing tightly-framed card captures.
-    double maxArea   = imageArea * 0.70;
+    // Loose cap — the edge-touching check below is the real guard against the
+    // video-frame-edge false positive.
+    double maxArea   = imageArea * 0.95;
+    // Margin (in pixels) for "touches the image edge" rejection.
+    int edgeMargin   = std::max(3, (int)(std::min(image.cols, image.rows) * 0.01));
 
     if (stats) stats->contoursTotal = (int)contours.size();
 
@@ -104,6 +105,16 @@ bool detectCardCorners(const cv::Mat& image, CardCorners& out,
         // following approximation gets near-rectangular polygons.
         std::vector<cv::Point> hull;
         cv::convexHull(contour, hull);
+
+        // Reject contours whose bounding box touches the image edge —
+        // that's the video-frame edge itself, not a real card.
+        cv::Rect bbox = cv::boundingRect(hull);
+        if (bbox.x < edgeMargin || bbox.y < edgeMargin ||
+            bbox.x + bbox.width  > image.cols - edgeMargin ||
+            bbox.y + bbox.height > image.rows - edgeMargin) {
+            continue;
+        }
+
         double perimeter = cv::arcLength(hull, true);
         std::vector<cv::Point> approx;
         cv::approxPolyDP(hull, approx, 0.04 * perimeter, true);
@@ -113,16 +124,16 @@ bool detectCardCorners(const cv::Mat& image, CardCorners& out,
             // Clean 4-vertex quad — use corners directly for best perspective warp.
             for (const auto& p : approx)
                 pts2f.push_back(cv::Point2f((float)p.x, (float)p.y));
-        } else if (approx.size() >= 5 && approx.size() <= 10) {
-            // Card contour sometimes reduces to 5–8 vertices (rounded corners,
+        } else if (approx.size() >= 5 && approx.size() <= 12) {
+            // Card contour sometimes reduces to 5–12 vertices (rounded corners,
             // edge noise, foil effects). Fall back to the min-area rectangle of
-            // the hull, but require the hull to fill >=88% of that rect so we
+            // the hull; require the hull to fill >=80% of that rect so we
             // don't accept random blobs whose bounding rect happens to be big.
             cv::RotatedRect minRect = cv::minAreaRect(hull);
             double rectArea = (double)minRect.size.width * minRect.size.height;
             if (rectArea < 1.0) continue;
             double hullArea = cv::contourArea(hull);
-            if (hullArea / rectArea < 0.88) continue;
+            if (hullArea / rectArea < 0.80) continue;
             cv::Point2f rectPts[4];
             minRect.points(rectPts);
             for (int i = 0; i < 4; i++) pts2f.push_back(rectPts[i]);

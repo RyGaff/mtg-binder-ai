@@ -5,7 +5,7 @@ export const getEmbeddingsFile = () => new File(Paths.document, 'embeddings.bin'
 export const getVersionFile = () => new File(Paths.document, 'embeddings_version.txt');
 
 export const getImageEmbeddingsFile = () => new File(Paths.document, 'embeddings_image.bin');
-export const getImageVersionFile  = () => new File(Paths.document, 'embeddings_image_version.txt');
+export const getImageVersionFile = () => new File(Paths.document, 'embeddings_image_version.txt');
 
 export type EmbeddingMap = Map<string, Float32Array>;
 

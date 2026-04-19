@@ -115,6 +115,17 @@ describe('parseEmbeddingBuffer v2 (image embeddings)', () => {
     expect(Array.from(result.byId.get('aaa-111')!)).toEqual([1, 0, 0, 0]);
     expect(result.byName.size).toBe(0);
   });
+
+  it('L2-normalizes v2 vectors at parse time', () => {
+    const buf = buildV2Buffer([{ id: 'aaa-111', vec: [3, 4, 0, 0] }]);
+    const result = parseEmbeddingBuffer(buf);
+    const v = result.byId.get('aaa-111')!;
+    expect(v[0]).toBeCloseTo(0.6, 5);
+    expect(v[1]).toBeCloseTo(0.8, 5);
+    let sq = 0;
+    for (let i = 0; i < v.length; i++) sq += v[i] * v[i];
+    expect(Math.sqrt(sq)).toBeCloseTo(1.0, 5);
+  });
 });
 
 describe('parseEmbeddingBuffer v1 (text embeddings, backward-compat)', () => {

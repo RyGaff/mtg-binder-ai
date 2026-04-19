@@ -31,6 +31,9 @@ class CardDetectorModule : Module() {
         try {
             val ctx = appContext.reactContext ?: return null
             val fd = ctx.assets.openFd("card_encoder.tflite")
+            // MappedByteBuffer persists beyond the FileInputStream close — the OS
+            // mapping is independent of the Java stream. TFLite 2.14 copies the
+            // model bytes during Interpreter construction, so the close is safe.
             FileInputStream(fd.fileDescriptor).use { stream ->
                 val buf = stream.channel.map(
                     FileChannel.MapMode.READ_ONLY,
@@ -82,11 +85,14 @@ class CardDetectorModule : Module() {
             val path = if (uri.startsWith("file://")) uri.removePrefix("file://") else uri
             val bmp = BitmapFactory.decodeFile(path) ?: return@AsyncFunction null
             val resized = Bitmap.createScaledBitmap(bmp, 224, 224, true)
+            bmp.recycle()
 
             val input = ByteBuffer.allocateDirect(4 * 224 * 224 * 3)
                 .order(ByteOrder.nativeOrder())
             val pixels = IntArray(224 * 224)
             resized.getPixels(pixels, 0, 224, 0, 0, 224, 224)
+            resized.recycle()
+
             for (p in pixels) {
                 input.putFloat(((p shr 16) and 0xFF) / 255f)  // R
                 input.putFloat(((p shr 8)  and 0xFF) / 255f)  // G

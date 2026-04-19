@@ -1,6 +1,7 @@
 #import "CardDetectorBridge.h"
 #import <UIKit/UIKit.h>
 #import <CoreVideo/CoreVideo.h>
+#import <CoreML/CoreML.h>
 #import <VisionCamera/FrameProcessorPlugin.h>
 #import <VisionCamera/FrameProcessorPluginRegistry.h>
 #import <VisionCamera/VisionCameraProxyHolder.h>
@@ -137,6 +138,88 @@ static NSDictionary<NSString *, id> *cornersToDict(
     CardCorners corners;
     if (!detectCardCorners(gray, corners, nullptr)) return nil;
     return cornersToDict(corners, nil);
+}
+
+// ── CoreML image encoder ─────────────────────────────────────────────────────
+
++ (nullable MLModel *)loadEncoderModel {
+    static MLModel *model = nil;
+    static dispatch_once_t onceToken;
+    dispatch_once(&onceToken, ^{
+        NSString *path = [[NSBundle mainBundle] pathForResource:@"card_encoder" ofType:@"mlmodelc"];
+        if (!path) {
+            NSLog(@"[CardDetector] card_encoder.mlmodelc not bundled — encodeImage disabled");
+            return;
+        }
+        NSError *err = nil;
+        NSURL *url = [NSURL fileURLWithPath:path];
+        model = [MLModel modelWithContentsOfURL:url error:&err];
+        if (err) {
+            NSLog(@"[CardDetector] failed to load encoder: %@", err);
+            model = nil;
+        }
+    });
+    return model;
+}
+
++ (nullable NSArray<NSNumber *> *)encodeImageFromFileURI:(NSString *)uri {
+    MLModel *model = [self loadEncoderModel];
+    if (!model) return nil;
+
+    NSString *path = [uri hasPrefix:@"file://"] ? [uri substringFromIndex:7] : uri;
+    UIImage *ui = [UIImage imageWithContentsOfFile:path];
+    if (!ui || !ui.CGImage) return nil;
+
+    // Resize to 224×224 and render to a BGRA pixel buffer.
+    CGSize target = CGSizeMake(224, 224);
+    UIGraphicsBeginImageContextWithOptions(target, YES, 1.0);
+    [ui drawInRect:CGRectMake(0, 0, target.width, target.height)];
+    UIImage *resized = UIGraphicsGetImageFromCurrentImageContext();
+    UIGraphicsEndImageContext();
+    if (!resized || !resized.CGImage) return nil;
+
+    CVPixelBufferRef pb = NULL;
+    NSDictionary *attrs = @{
+        (NSString *)kCVPixelBufferCGImageCompatibilityKey: @YES,
+        (NSString *)kCVPixelBufferCGBitmapContextCompatibilityKey: @YES,
+    };
+    CVReturn st = CVPixelBufferCreate(
+        kCFAllocatorDefault, 224, 224,
+        kCVPixelFormatType_32ARGB,
+        (__bridge CFDictionaryRef)attrs, &pb);
+    if (st != kCVReturnSuccess || !pb) return nil;
+
+    CVPixelBufferLockBaseAddress(pb, 0);
+    CGColorSpaceRef cs = CGColorSpaceCreateDeviceRGB();
+    CGContextRef ctx = CGBitmapContextCreate(
+        CVPixelBufferGetBaseAddress(pb), 224, 224, 8,
+        CVPixelBufferGetBytesPerRow(pb), cs,
+        kCGImageAlphaNoneSkipFirst | kCGBitmapByteOrder32Little);
+    CGContextDrawImage(ctx, CGRectMake(0, 0, 224, 224), resized.CGImage);
+    CGContextRelease(ctx);
+    CGColorSpaceRelease(cs);
+    CVPixelBufferUnlockBaseAddress(pb, 0);
+
+    NSError *err = nil;
+    MLFeatureValue *fv = [MLFeatureValue featureValueWithPixelBuffer:pb];
+    MLDictionaryFeatureProvider *input = [[MLDictionaryFeatureProvider alloc]
+        initWithDictionary:@{@"input": fv} error:&err];
+    CVPixelBufferRelease(pb);
+    if (err || !input) return nil;
+
+    id<MLFeatureProvider> output = [model predictionFromFeatures:input error:&err];
+    if (err || !output) return nil;
+
+    MLFeatureValue *vec = [output featureValueForName:@"output"];
+    MLMultiArray *arr = vec.multiArrayValue;
+    if (!arr) return nil;
+
+    NSUInteger count = arr.count;
+    NSMutableArray<NSNumber *> *out = [NSMutableArray arrayWithCapacity:count];
+    for (NSUInteger i = 0; i < count; i++) {
+        [out addObject:@([arr[@(i)] floatValue])];
+    }
+    return [out copy];
 }
 
 @end

@@ -155,13 +155,16 @@ export async function scanCard(
   const parsed = parseSetAndNumber(blText);
 
   if (parsed) {
+    let card: CachedCard | undefined;
     try {
-      const card = await fetchCardBySetNumber(parsed.setCode, parsed.collectorNumber);
+      card = await fetchCardBySetNumber(parsed.setCode, parsed.collectorNumber);
+    } catch {
+      // Scryfall 404 or network error — fall through to name strategy
+    }
+    if (card) {
       // Warm the session cache; later scans of the same card will skip Scryfall.
       const hydrated = await resolveCardById(card.scryfall_id);
       return { strategy: 'set_number', card: hydrated, corners, imageW: imgW, imageH: imgH, ocrText: blText, blText };
-    } catch {
-      // Scryfall 404 or network error — fall through to name strategy
     }
   }
 

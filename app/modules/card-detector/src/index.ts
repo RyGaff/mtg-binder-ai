@@ -14,7 +14,7 @@ export type CardCorners = {
 };
 
 export const CARD_CONFIDENCE_MIN    = 0.35;
-export const CARD_CONFIDENCE_STABLE = 0.65;
+export const CARD_CONFIDENCE_STABLE = 0.45;
 
 type RawCorners = {
   topLeftX:     number; topLeftY:     number;
@@ -38,8 +38,23 @@ function parseRaw(raw: RawCorners): CardCorners {
 
 export async function detectCardCorners(imageUri: string): Promise<CardCorners | null> {
   const Native = requireNativeModule('CardDetector');
-  const raw: RawCorners | null = await Native.detectCardCorners(imageUri);
+  const raw: RawCorners & {
+    _error?: string;
+    resolvedPath?: string;
+    fileExists?: boolean;
+    stats?: Record<string, number>;
+  } | null = await Native.detectCardCorners(imageUri);
   if (!raw) return null;
+  if (raw._error) {
+    const s = raw.stats ?? {};
+    const statStr = raw.stats
+      ? ` [cont=${s.contoursTotal} 4v=${s.passed4Vertex} area=${s.passedMinArea} conv=${s.passedConvex} ang=${s.passedAngles} AR=${s.passedAR}]`
+      : '';
+    const pathStr = raw.resolvedPath
+      ? ` path=${raw.resolvedPath} exists=${raw.fileExists}`
+      : '';
+    throw new Error(`Photo detection failed: ${raw._error}${statStr}${pathStr}`);
+  }
   return parseRaw(raw);
 }
 
@@ -49,17 +64,64 @@ export function initCardDetectorPlugin(): FrameProcessorPlugin | null {
   return p;
 }
 
-export function detectCardCornersInFrame(frame: Frame, plugin: FrameProcessorPlugin): CardCorners | null {
+export type DetectionStats = {
+  medianLuma:    number;
+  edgePixels:    number;
+  contoursTotal: number;
+  passed4Vertex: number;
+  passedMinArea: number;
+  passedConvex:  number;
+  passedAngles:  number;
+  passedAR:      number;
+};
+
+export type FrameDebug = {
+  pixelFormat: string | null;
+  frameW:      number;
+  frameH:      number;
+  stats:       DetectionStats | null;
+};
+
+export function detectCardCornersInFrame(
+  frame: Frame,
+  plugin: FrameProcessorPlugin,
+): { corners: CardCorners | null; debug: FrameDebug } {
   'worklet';
-  const result = plugin.call(frame) as Record<string, number | string | undefined> | null;
-  if (!result) return null;
+  const result = plugin.call(frame) as Record<string, unknown> | null;
+  if (!result) {
+    return { corners: null, debug: { pixelFormat: null, frameW: 0, frameH: 0, stats: null } };
+  }
+  const rawStats = result.stats as Record<string, number> | undefined;
+  const stats: DetectionStats | null = rawStats
+    ? {
+        medianLuma:    rawStats.medianLuma    ?? 0,
+        edgePixels:    rawStats.edgePixels    ?? 0,
+        contoursTotal: rawStats.contoursTotal ?? 0,
+        passed4Vertex: rawStats.passed4Vertex ?? 0,
+        passedMinArea: rawStats.passedMinArea ?? 0,
+        passedConvex:  rawStats.passedConvex  ?? 0,
+        passedAngles:  rawStats.passedAngles  ?? 0,
+        passedAR:      rawStats.passedAR      ?? 0,
+      }
+    : null;
+  const debug: FrameDebug = {
+    pixelFormat: (result.pixelFormat as string) ?? null,
+    frameW:      (result.frameW as number) ?? 0,
+    frameH:      (result.frameH as number) ?? 0,
+    stats,
+  };
+  if (result._debug) {
+    return { corners: null, debug };
+  }
   return {
-    topLeft:     { x: result.topLeftX     as number, y: result.topLeftY     as number },
-    topRight:    { x: result.topRightX    as number, y: result.topRightY    as number },
-    bottomRight: { x: result.bottomRightX as number, y: result.bottomRightY as number },
-    bottomLeft:  { x: result.bottomLeftX  as number, y: result.bottomLeftY  as number },
-    confidence:  result.confidence as number,
-    // Frame processor path does not produce rectifiedUri
+    corners: {
+      topLeft:     { x: result.topLeftX     as number, y: result.topLeftY     as number },
+      topRight:    { x: result.topRightX    as number, y: result.topRightY    as number },
+      bottomRight: { x: result.bottomRightX as number, y: result.bottomRightY as number },
+      bottomLeft:  { x: result.bottomLeftX  as number, y: result.bottomLeftY  as number },
+      confidence:  result.confidence as number,
+    },
+    debug,
   };
 }
 

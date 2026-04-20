@@ -158,17 +158,16 @@ export async function scanCard(
   onProgress?.({ step: 'bl_parsed', parsed });
 
   if (parsed) {
-    let card: CachedCard | undefined;
+    let fetched: CachedCard | null = null;
     try {
       onProgress?.({ step: 'fetching', query: `${parsed.setCode.toUpperCase()} #${parsed.collectorNumber}` });
-      const card = await fetchCardBySetNumber(parsed.setCode, parsed.collectorNumber);
-      return { strategy: 'set_number', card, corners, imageW: imgW, imageH: imgH, ocrText: blText, blText };
+      fetched = await fetchCardBySetNumber(parsed.setCode, parsed.collectorNumber);
     } catch {
       // Scryfall 404 or network error — fall through to name strategy
     }
-    if (card) {
+    if (fetched) {
       // Warm the session cache; later scans of the same card will skip Scryfall.
-      const hydrated = await resolveCardById(card.scryfall_id);
+      const hydrated = await resolveCardById(fetched.scryfall_id);
       return { strategy: 'set_number', card: hydrated, corners, imageW: imgW, imageH: imgH, ocrText: blText, blText };
     }
   }

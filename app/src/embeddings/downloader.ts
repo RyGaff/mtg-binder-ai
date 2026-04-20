@@ -6,7 +6,10 @@ import {
 } from './parser';
 
 /**
- * URL of the JSON manifest. Update this when hosting is configured.
+ * URL of the JSON manifest.
+ *
+ * Hosted via GitHub Releases on the `mtg-binder-ai` repo — bump the release
+ * tag when shipping new embeddings and the app will download on next launch.
  *
  * v1 shape (legacy):   { "version": "YYYY-MM-DD", "url": "https://..." }
  * v2 shape (optional): also includes
@@ -14,8 +17,8 @@ import {
  *   "image_encoder_ios":      { ... }
  *   "image_encoder_android":  { ... }
  */
-// TODO: replace with production URL before release
-const MANIFEST_URL = 'https://your-cdn.example.com/embeddings/manifest.json';
+const MANIFEST_URL =
+  'https://github.com/RyGaff/mtg-binder-ai/releases/download/embeddings-v2/manifest.json';
 
 type ManifestEntry = { url: string; version: string; bytes?: number; sha256?: string };
 

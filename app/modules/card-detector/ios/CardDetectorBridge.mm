@@ -351,14 +351,16 @@ static NSDictionary<NSString *, id> *cornersToDict(
 }
 
 + (nonnull NSDictionary<NSString *, id> *)encodeImageFromFileURI:(NSString *)uri {
-    // Mirrors the Kotlin/TFLite bridge step-for-step:
-    //   1. decode file → Bitmap / UIImage
-    //   2. scale to 224×224
-    //   3. extract RGB bytes, normalize to [0, 1] float32
-    //   4. fill model input tensor (NCHW on iOS, NHWC on Android — only
-    //      difference, dictated by the respective models' shapes)
-    //   5. run inference
-    //   6. copy 256-float output to an NSArray
+    // Mirrors the Python training-time eval transform step-for-step:
+    //   1. decode file → UIImage  (RGB)
+    //   2. LongestMaxSize(224)    — aspect-preserving scale, long side = 224
+    //   3. PadIfNeeded(224,224)   — center-pad with zeros
+    //   4. extract RGB bytes, normalize to [0, 1] float32
+    //   5. fill NCHW tensor [1,3,224,224]  (TFLite side uses NHWC but
+    //      same steps 1-4; the channel-order difference is dictated by the
+    //      respective model exports)
+    //   6. run inference
+    //   7. copy 256-float output to an NSArray
 
     MLModel *model = [self loadEncoderModel];
     if (!model) return @{@"error": @"model not loaded (see launch-time CardDetector logs)"};
@@ -367,12 +369,19 @@ static NSDictionary<NSString *, id> *cornersToDict(
     UIImage *ui = [UIImage imageWithContentsOfFile:path];
     if (!ui || !ui.CGImage) return @{@"error": [NSString stringWithFormat:@"image decode failed: %@", path]};
 
-    // Draw scaled RGBA bytes into a plain buffer we own. Bytes are laid out
-    // as R, G, B, A for each pixel in row-major order — the same layout the
-    // Android code gets out of Bitmap.getPixels (once you account for the
-    // int->byte unpacking there).
+    // Compute aspect-preserving target rect inside a 224×224 canvas.
     const NSUInteger side = 224;
     const NSUInteger plane = side * side;
+    const CGFloat origW = CGImageGetWidth(ui.CGImage);
+    const CGFloat origH = CGImageGetHeight(ui.CGImage);
+    const CGFloat scale = (CGFloat)side / MAX(origW, origH);
+    const CGFloat drawW = origW * scale;
+    const CGFloat drawH = origH * scale;
+    const CGFloat offsetX = ((CGFloat)side - drawW) / 2.0;
+    const CGFloat offsetY = ((CGFloat)side - drawH) / 2.0;
+
+    // calloc zero-fills, so pixels outside the drawn rect are black — matches
+    // albumentations PadIfNeeded(border_mode=BORDER_CONSTANT, fill=0).
     uint8_t *raw = (uint8_t *)calloc(plane * 4, sizeof(uint8_t));
     if (!raw) return @{@"error": @"calloc failed"};
 
@@ -382,7 +391,12 @@ static NSDictionary<NSString *, id> *cornersToDict(
         kCGImageAlphaPremultipliedLast | kCGBitmapByteOrder32Big);
     CGColorSpaceRelease(cs);
     if (!ctx) { free(raw); return @{@"error": @"CGBitmapContextCreate failed"}; }
-    CGContextDrawImage(ctx, CGRectMake(0, 0, side, side), ui.CGImage);
+    // Flip Y so our top-down row-major raw buffer matches the orientation
+    // PIL / BitmapFactory produce (Core Graphics has y=0 at the bottom,
+    // so CGContextDrawImage without this flip writes the image upside-down).
+    CGContextTranslateCTM(ctx, 0, side);
+    CGContextScaleCTM(ctx, 1.0, -1.0);
+    CGContextDrawImage(ctx, CGRectMake(offsetX, offsetY, drawW, drawH), ui.CGImage);
     CGContextRelease(ctx);
 
     // Model signature (from coremlcompiler metadata):

@@ -11,6 +11,7 @@ Pod::Spec.new do |s|
   s.platform       = :ios, '15.1'
   s.source         = { :path => '.' }
   s.source_files   = '*.swift', '*.h', '*.mm'
+  s.resources      = '*.mlmodel'
   s.frameworks     = 'CoreMedia', 'CoreImage', 'UIKit'
   s.weak_frameworks = 'CoreML'
   s.dependency 'ExpoModulesCore'

@@ -351,6 +351,15 @@ static NSDictionary<NSString *, id> *cornersToDict(
 }
 
 + (nonnull NSDictionary<NSString *, id> *)encodeImageFromFileURI:(NSString *)uri {
+    // Mirrors the Kotlin/TFLite bridge step-for-step:
+    //   1. decode file → Bitmap / UIImage
+    //   2. scale to 224×224
+    //   3. extract RGB bytes, normalize to [0, 1] float32
+    //   4. fill model input tensor (NCHW on iOS, NHWC on Android — only
+    //      difference, dictated by the respective models' shapes)
+    //   5. run inference
+    //   6. copy 256-float output to an NSArray
+
     MLModel *model = [self loadEncoderModel];
     if (!model) return @{@"error": @"model not loaded (see launch-time CardDetector logs)"};
 
@@ -358,54 +367,60 @@ static NSDictionary<NSString *, id> *cornersToDict(
     UIImage *ui = [UIImage imageWithContentsOfFile:path];
     if (!ui || !ui.CGImage) return @{@"error": [NSString stringWithFormat:@"image decode failed: %@", path]};
 
-    // Resize to 224×224 and render to a BGRA pixel buffer.
-    CGSize target = CGSizeMake(224, 224);
-    UIGraphicsBeginImageContextWithOptions(target, YES, 1.0);
-    [ui drawInRect:CGRectMake(0, 0, target.width, target.height)];
-    UIImage *resized = UIGraphicsGetImageFromCurrentImageContext();
-    UIGraphicsEndImageContext();
-    if (!resized || !resized.CGImage) return @{@"error": @"resize failed"};
+    // Draw scaled RGBA bytes into a plain buffer we own. Bytes are laid out
+    // as R, G, B, A for each pixel in row-major order — the same layout the
+    // Android code gets out of Bitmap.getPixels (once you account for the
+    // int->byte unpacking there).
+    const NSUInteger side = 224;
+    const NSUInteger plane = side * side;
+    uint8_t *raw = (uint8_t *)calloc(plane * 4, sizeof(uint8_t));
+    if (!raw) return @{@"error": @"calloc failed"};
 
-    CVPixelBufferRef pb = NULL;
-    NSDictionary *attrs = @{
-        (NSString *)kCVPixelBufferCGImageCompatibilityKey: @YES,
-        (NSString *)kCVPixelBufferCGBitmapContextCompatibilityKey: @YES,
-    };
-    CVReturn st = CVPixelBufferCreate(
-        kCFAllocatorDefault, 224, 224,
-        kCVPixelFormatType_32ARGB,
-        (__bridge CFDictionaryRef)attrs, &pb);
-    if (st != kCVReturnSuccess || !pb) return @{@"error": [NSString stringWithFormat:@"CVPixelBufferCreate=%d", st]};
-
-    CVPixelBufferLockBaseAddress(pb, 0);
     CGColorSpaceRef cs = CGColorSpaceCreateDeviceRGB();
     CGContextRef ctx = CGBitmapContextCreate(
-        CVPixelBufferGetBaseAddress(pb), 224, 224, 8,
-        CVPixelBufferGetBytesPerRow(pb), cs,
-        kCGImageAlphaNoneSkipFirst | kCGBitmapByteOrder32Little);
-    CGContextDrawImage(ctx, CGRectMake(0, 0, 224, 224), resized.CGImage);
-    CGContextRelease(ctx);
+        raw, side, side, 8, side * 4, cs,
+        kCGImageAlphaPremultipliedLast | kCGBitmapByteOrder32Big);
     CGColorSpaceRelease(cs);
-    CVPixelBufferUnlockBaseAddress(pb, 0);
+    if (!ctx) { free(raw); return @{@"error": @"CGBitmapContextCreate failed"}; }
+    CGContextDrawImage(ctx, CGRectMake(0, 0, side, side), ui.CGImage);
+    CGContextRelease(ctx);
 
+    // Model signature (from coremlcompiler metadata):
+    //   input  "image"     MultiArray Float32 [1, 3, 224, 224]  (NCHW)
+    //   output "embedding" MultiArray Float32 [1, 256]
     NSError *err = nil;
-    MLFeatureValue *fv = [MLFeatureValue featureValueWithPixelBuffer:pb];
+    MLMultiArray *mla = [[MLMultiArray alloc]
+        initWithShape:@[@1, @3, @(side), @(side)]
+             dataType:MLMultiArrayDataTypeFloat32
+                error:&err];
+    if (err || !mla) { free(raw); return @{@"error": [NSString stringWithFormat:@"MLMultiArray init: %@", err.localizedDescription ?: @"unknown"]}; }
+
+    // NCHW: fill all red values, then all green, then all blue. Each plane
+    // is 224*224 floats.
+    float *dst = (float *)mla.dataPointer;
+    for (NSUInteger i = 0; i < plane; i++) {
+        const NSUInteger src = i * 4;  // RGBA
+        dst[0 * plane + i] = raw[src + 0] / 255.0f;  // R
+        dst[1 * plane + i] = raw[src + 1] / 255.0f;  // G
+        dst[2 * plane + i] = raw[src + 2] / 255.0f;  // B
+    }
+    free(raw);
+
+    MLFeatureValue *fv = [MLFeatureValue featureValueWithMultiArray:mla];
     MLDictionaryFeatureProvider *input = [[MLDictionaryFeatureProvider alloc]
-        initWithDictionary:@{@"input": fv} error:&err];
-    CVPixelBufferRelease(pb);
+        initWithDictionary:@{@"image": fv} error:&err];
     if (err || !input) return @{@"error": [NSString stringWithFormat:@"input build: %@", err.localizedDescription ?: @"unknown"]};
 
     id<MLFeatureProvider> output = [model predictionFromFeatures:input error:&err];
     if (err || !output) return @{@"error": [NSString stringWithFormat:@"prediction: %@", err.localizedDescription ?: @"unknown"]};
 
-    NSSet<NSString *> *names = [output featureNames];
-    MLFeatureValue *vec = [output featureValueForName:@"output"];
-    if (!vec) return @{@"error": [NSString stringWithFormat:@"no 'output' feature, available=%@", names]};
+    MLFeatureValue *vec = [output featureValueForName:@"embedding"];
+    if (!vec) return @{@"error": [NSString stringWithFormat:@"no 'embedding' feature, available=%@", [output featureNames]]};
 
     MLMultiArray *arr = vec.multiArrayValue;
     if (!arr) return @{@"error": [NSString stringWithFormat:@"multiArrayValue nil type=%ld", (long)vec.type]};
     if (arr.dataType != MLMultiArrayDataTypeFloat32) {
-        return @{@"error": [NSString stringWithFormat:@"unexpected dataType=%ld (want Float32=%ld)",
+        return @{@"error": [NSString stringWithFormat:@"unexpected output dataType=%ld (want Float32=%ld)",
                             (long)arr.dataType, (long)MLMultiArrayDataTypeFloat32]};
     }
 

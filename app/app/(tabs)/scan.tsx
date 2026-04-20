@@ -492,7 +492,8 @@ export default function ScanScreen() {
       setParsedInfo(null);
       setQueryInfo(null);
       const photo = await cameraRef.current.takePhoto({ qualityPrioritization: 'speed' });
-      const uri = `file://${photo.path}`;
+      // vision-camera returns `path` with or without `file://` depending on platform/version.
+      const uri = photo.path.startsWith('file://') ? photo.path : `file://${photo.path}`;
 
       // DEBUG MODE: image-embedding path ONLY — OCR fallback disabled.
       console.log('[image-scan] taking photo → scanCardByImage');

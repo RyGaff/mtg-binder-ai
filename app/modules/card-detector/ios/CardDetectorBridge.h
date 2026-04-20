@@ -9,8 +9,9 @@
 
 /**
  * Run the bundled CoreML image encoder on the file at `uri`. Returns a
- * 256-length NSArray of NSNumber (float) or nil when the encoder asset
- * (card_encoder.mlmodelc) is not present in the bundle.
+ * dictionary with one of:
+ *   { "embedding": NSArray<NSNumber> }  on success (256-length float32 vec)
+ *   { "error":     NSString }           on any failure with a reason
  */
-+ (nullable NSArray<NSNumber *> *)encodeImageFromFileURI:(NSString *)uri;
++ (nonnull NSDictionary<NSString *, id> *)encodeImageFromFileURI:(NSString *)uri;
 @end

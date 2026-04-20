@@ -133,7 +133,18 @@ export function detectCardCornersInFrame(
  */
 export async function encodeImage(imageUri: string): Promise<Float32Array | null> {
   const Native = requireNativeModule('CardDetector');
-  const raw: number[] | null = await Native.encodeImage(imageUri);
-  if (!raw) return null;
-  return new Float32Array(raw);
+  // iOS returns { embedding: number[] } | { error: string }
+  // Android returns number[] | null
+  const raw: unknown = await Native.encodeImage(imageUri);
+  if (raw == null) return null;
+  if (Array.isArray(raw)) return new Float32Array(raw);
+  if (typeof raw === 'object') {
+    const obj = raw as { embedding?: number[]; error?: string };
+    if (obj.error) {
+      console.warn('[CardDetector.encodeImage]', obj.error);
+      return null;
+    }
+    if (obj.embedding) return new Float32Array(obj.embedding);
+  }
+  return null;
 }

@@ -12,7 +12,7 @@ public class CardDetectorModule: Module {
             return CardDetectorBridge.detectCorners(fromFileURI: uri) as? [String: Any]
         }
 
-        AsyncFunction("encodeImage") { (uri: String) -> [NSNumber]? in
+        AsyncFunction("encodeImage") { (uri: String) -> [String: Any] in
             return CardDetectorBridge.encodeImage(fromFileURI: uri)
         }
     }

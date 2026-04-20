@@ -350,13 +350,13 @@ static NSDictionary<NSString *, id> *cornersToDict(
     return model;
 }
 
-+ (nullable NSArray<NSNumber *> *)encodeImageFromFileURI:(NSString *)uri {
++ (nonnull NSDictionary<NSString *, id> *)encodeImageFromFileURI:(NSString *)uri {
     MLModel *model = [self loadEncoderModel];
-    if (!model) { NSLog(@"[CardDetector.encode] model nil"); return nil; }
+    if (!model) return @{@"error": @"model not loaded (see launch-time CardDetector logs)"};
 
     NSString *path = [uri hasPrefix:@"file://"] ? [uri substringFromIndex:7] : uri;
     UIImage *ui = [UIImage imageWithContentsOfFile:path];
-    if (!ui || !ui.CGImage) { NSLog(@"[CardDetector.encode] image decode failed: %@", path); return nil; }
+    if (!ui || !ui.CGImage) return @{@"error": [NSString stringWithFormat:@"image decode failed: %@", path]};
 
     // Resize to 224×224 and render to a BGRA pixel buffer.
     CGSize target = CGSizeMake(224, 224);
@@ -364,7 +364,7 @@ static NSDictionary<NSString *, id> *cornersToDict(
     [ui drawInRect:CGRectMake(0, 0, target.width, target.height)];
     UIImage *resized = UIGraphicsGetImageFromCurrentImageContext();
     UIGraphicsEndImageContext();
-    if (!resized || !resized.CGImage) { NSLog(@"[CardDetector.encode] resize failed"); return nil; }
+    if (!resized || !resized.CGImage) return @{@"error": @"resize failed"};
 
     CVPixelBufferRef pb = NULL;
     NSDictionary *attrs = @{
@@ -375,7 +375,7 @@ static NSDictionary<NSString *, id> *cornersToDict(
         kCFAllocatorDefault, 224, 224,
         kCVPixelFormatType_32ARGB,
         (__bridge CFDictionaryRef)attrs, &pb);
-    if (st != kCVReturnSuccess || !pb) { NSLog(@"[CardDetector.encode] CVPixelBufferCreate failed: %d", st); return nil; }
+    if (st != kCVReturnSuccess || !pb) return @{@"error": [NSString stringWithFormat:@"CVPixelBufferCreate=%d", st]};
 
     CVPixelBufferLockBaseAddress(pb, 0);
     CGColorSpaceRef cs = CGColorSpaceCreateDeviceRGB();
@@ -393,33 +393,29 @@ static NSDictionary<NSString *, id> *cornersToDict(
     MLDictionaryFeatureProvider *input = [[MLDictionaryFeatureProvider alloc]
         initWithDictionary:@{@"input": fv} error:&err];
     CVPixelBufferRelease(pb);
-    if (err || !input) { NSLog(@"[CardDetector.encode] input build failed: %@", err); return nil; }
+    if (err || !input) return @{@"error": [NSString stringWithFormat:@"input build: %@", err.localizedDescription ?: @"unknown"]};
 
     id<MLFeatureProvider> output = [model predictionFromFeatures:input error:&err];
-    if (err || !output) { NSLog(@"[CardDetector.encode] prediction failed: %@", err); return nil; }
+    if (err || !output) return @{@"error": [NSString stringWithFormat:@"prediction: %@", err.localizedDescription ?: @"unknown"]};
 
     NSSet<NSString *> *names = [output featureNames];
     MLFeatureValue *vec = [output featureValueForName:@"output"];
-    if (!vec) {
-        NSLog(@"[CardDetector.encode] no 'output' feature. Available: %@", names);
-        return nil;
-    }
+    if (!vec) return @{@"error": [NSString stringWithFormat:@"no 'output' feature, available=%@", names]};
+
     MLMultiArray *arr = vec.multiArrayValue;
-    if (!arr) { NSLog(@"[CardDetector.encode] multiArrayValue nil (type=%ld)", (long)vec.type); return nil; }
+    if (!arr) return @{@"error": [NSString stringWithFormat:@"multiArrayValue nil type=%ld", (long)vec.type]};
     if (arr.dataType != MLMultiArrayDataTypeFloat32) {
-        NSLog(@"[CardDetector.encode] unexpected dataType=%ld (want Float32=%ld)",
-              (long)arr.dataType, (long)MLMultiArrayDataTypeFloat32);
-        return nil;
+        return @{@"error": [NSString stringWithFormat:@"unexpected dataType=%ld (want Float32=%ld)",
+                            (long)arr.dataType, (long)MLMultiArrayDataTypeFloat32]};
     }
 
     NSUInteger count = arr.count;
-    NSLog(@"[CardDetector.encode] output len=%lu shape=%@", (unsigned long)count, arr.shape);
     const float *src = (const float *)arr.dataPointer;
     NSMutableArray<NSNumber *> *out = [NSMutableArray arrayWithCapacity:count];
     for (NSUInteger i = 0; i < count; i++) {
         [out addObject:@(src[i])];
     }
-    return [out copy];
+    return @{@"embedding": [out copy]};
 }
 
 @end

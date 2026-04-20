@@ -13,3 +13,4 @@ docs
 .superpowers/
 embeddings.bin
 local_models/
+images

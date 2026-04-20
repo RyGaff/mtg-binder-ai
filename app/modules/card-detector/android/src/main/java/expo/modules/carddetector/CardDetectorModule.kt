@@ -64,8 +64,11 @@ class CardDetectorModule : Module() {
 
         AsyncFunction("detectCardCorners") { uri: String ->
             val path = if (uri.startsWith("file://")) uri.removePrefix("file://") else uri
-            val raw = detectCornersNative(path) ?: return@AsyncFunction null
-            if (raw.size != 9) return@AsyncFunction null
+            val raw = detectCornersNative(path)
+                ?: return@AsyncFunction mapOf<String, Any>("_error" to "detect_failed")
+            if (raw.size != 9) {
+                return@AsyncFunction mapOf<String, Any>("_error" to "detect_bad_shape")
+            }
 
             val rectPath = "$path.rect.jpg"
             val rectFile = File(rectPath)
@@ -81,9 +84,11 @@ class CardDetectorModule : Module() {
         }
 
         AsyncFunction("encodeImage") { uri: String ->
-            val itp = loadInterpreter() ?: return@AsyncFunction null
+            val itp = loadInterpreter()
+                ?: return@AsyncFunction mapOf<String, Any>("error" to "interpreter not loaded (card_encoder.tflite missing from assets?)")
             val path = if (uri.startsWith("file://")) uri.removePrefix("file://") else uri
-            val bmp = BitmapFactory.decodeFile(path) ?: return@AsyncFunction null
+            val bmp = BitmapFactory.decodeFile(path)
+                ?: return@AsyncFunction mapOf<String, Any>("error" to "image decode failed: $path")
 
             // Mirror albumentations training transform:
             //   LongestMaxSize(224) + PadIfNeeded(224, 224, fill=0)
@@ -123,9 +128,13 @@ class CardDetectorModule : Module() {
                 itp.run(input, output)
             } catch (e: Exception) {
                 Log.w("CardDetector", "TFLite inference failed", e)
-                return@AsyncFunction null
+                return@AsyncFunction mapOf<String, Any>(
+                    "error" to "inference failed: ${e.message ?: e.javaClass.simpleName}"
+                )
             }
-            return@AsyncFunction output[0].toList().map { it.toDouble() }
+            return@AsyncFunction mapOf<String, Any>(
+                "embedding" to output[0].toList().map { it.toDouble() }
+            )
         }
     }
 }

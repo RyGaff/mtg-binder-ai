@@ -59,22 +59,6 @@ static cv::Mat grayMatFromSampleBuffer(CMSampleBufferRef sampleBuffer) {
     CVPixelBufferRef pixelBuffer = CMSampleBufferGetImageBuffer(sampleBuffer);
     if (!pixelBuffer) return cv::Mat();
 
-    OSType fmt = CVPixelBufferGetPixelFormatType(pixelBuffer);
-
-    // One-time log so we can see the format in device console
-    static dispatch_once_t once;
-    dispatch_once(&once, ^{
-        char fcc[5] = {
-            (char)((fmt >> 24) & 0xff), (char)((fmt >> 16) & 0xff),
-            (char)((fmt >> 8)  & 0xff), (char)( fmt        & 0xff), 0
-        };
-        NSLog(@"[CardDetector] first frame pixelFormat=%s (%u) planar=%s w=%zu h=%zu",
-              fcc, (unsigned)fmt,
-              CVPixelBufferIsPlanar(pixelBuffer) ? "Y" : "N",
-              CVPixelBufferGetWidth(pixelBuffer),
-              CVPixelBufferGetHeight(pixelBuffer));
-    });
-
     CVPixelBufferLockBaseAddress(pixelBuffer, kCVPixelBufferLock_ReadOnly);
     cv::Mat result;
 
@@ -199,13 +183,11 @@ static NSDictionary<NSString *, id> *cornersToDict(
 + (void)registerFrameProcessorPlugin {
     static dispatch_once_t onceToken;
     dispatch_once(&onceToken, ^{
-        NSLog(@"[CardDetector] Registering detectCardCornersInFrame...");
         [FrameProcessorPluginRegistry
             addFrameProcessorPlugin:@"detectCardCornersInFrame"
                     withInitializer:^FrameProcessorPlugin*(VisionCameraProxyHolder* proxy, NSDictionary* options) {
             return [[CardDetectorFrameProcessorPlugin alloc] initWithProxy:proxy withOptions:options];
         }];
-        NSLog(@"[CardDetector] Plugin registered OK");
     });
 }
 
@@ -216,7 +198,6 @@ static NSDictionary<NSString *, id> *cornersToDict(
 @implementation CardDetectorBridge
 
 + (void)load {
-    NSLog(@"[CardDetector] +load fired — registering plugin");
     [self registerFrameProcessorPlugin];
 }
 
@@ -233,7 +214,6 @@ static NSDictionary<NSString *, id> *cornersToDict(
         }
     }
     BOOL exists = [[NSFileManager defaultManager] fileExistsAtPath:path];
-    NSLog(@"[CardDetector] photo uri=%@ path=%@ exists=%d", uri, path, exists);
 
     UIImage *uiImage = [UIImage imageWithContentsOfFile:path];
     if (!uiImage || !uiImage.CGImage) {
@@ -243,8 +223,6 @@ static NSDictionary<NSString *, id> *cornersToDict(
             @"fileExists":   @(exists),
         };
     }
-    NSLog(@"[CardDetector] photo size=%.0fx%.0f orient=%ld",
-          uiImage.size.width, uiImage.size.height, (long)uiImage.imageOrientation);
 
     cv::Mat bgr = matFromUIImage(uiImage);
     if (bgr.empty()) {
@@ -257,7 +235,6 @@ static NSDictionary<NSString *, id> *cornersToDict(
         cv::Mat r;
         cv::rotate(bgr, r, cv::ROTATE_90_CLOCKWISE);
         bgr = r;
-        NSLog(@"[CardDetector] photo fallback-rotated to %dx%d", bgr.cols, bgr.rows);
     }
 
     // Downscale very large photos (takePhoto can yield 4032×3024). Keeping the
@@ -271,7 +248,6 @@ static NSDictionary<NSString *, id> *cornersToDict(
     } else {
         bgrSmall = bgr;
     }
-    NSLog(@"[CardDetector] photo processed mat=%dx%d", bgrSmall.cols, bgrSmall.rows);
 
     NSString *rectPath = [path stringByAppendingString:@".rect.jpg"];
     std::string rectPathStr = rectPath.UTF8String;
@@ -279,9 +255,6 @@ static NSDictionary<NSString *, id> *cornersToDict(
     CardCorners corners;
     DetectionStats stats;
     if (!detectCardCorners(bgrSmall, corners, &rectPathStr, &stats)) {
-        NSLog(@"[CardDetector] photo detect FAIL: contours=%d 4vert=%d area=%d conv=%d ang=%d AR=%d",
-              stats.contoursTotal, stats.passed4Vertex, stats.passedMinArea,
-              stats.passedConvex, stats.passedAngles, stats.passedAR);
         return @{
             @"_error": @"detect_failed",
             @"stats": @{

@@ -317,25 +317,22 @@ static NSDictionary<NSString *, id> *cornersToDict(
     static MLModel *model = nil;
     static dispatch_once_t onceToken;
     dispatch_once(&onceToken, ^{
-        NSString *pathC = [[NSBundle mainBundle] pathForResource:@"card_encoder" ofType:@"mlmodelc"];
+        NSString *pathC   = [[NSBundle mainBundle] pathForResource:@"card_encoder" ofType:@"mlmodelc"];
         NSString *pathRaw = [[NSBundle mainBundle] pathForResource:@"card_encoder" ofType:@"mlmodel"];
-        NSLog(@"[CardDetector] encoder lookup — mlmodelc=%@ mlmodel=%@", pathC ?: @"(nil)", pathRaw ?: @"(nil)");
-
-        NSString *path = pathC;
         NSURL *url = nil;
-        if (path) {
-            url = [NSURL fileURLWithPath:path];
+        if (pathC) {
+            url = [NSURL fileURLWithPath:pathC];
         } else if (pathRaw) {
+            // CocoaPods' s.resources copies .mlmodel as-is; compile at runtime
+            // if Xcode didn't produce a .mlmodelc.
             NSError *compileErr = nil;
-            NSURL *rawUrl = [NSURL fileURLWithPath:pathRaw];
-            url = [MLModel compileModelAtURL:rawUrl error:&compileErr];
+            url = [MLModel compileModelAtURL:[NSURL fileURLWithPath:pathRaw] error:&compileErr];
             if (compileErr || !url) {
                 NSLog(@"[CardDetector] mlmodel compile failed: %@", compileErr);
                 return;
             }
-            NSLog(@"[CardDetector] compiled .mlmodel at runtime → %@", url.path);
         } else {
-            NSLog(@"[CardDetector] card_encoder not bundled (neither .mlmodelc nor .mlmodel)");
+            NSLog(@"[CardDetector] card_encoder not bundled — encodeImage disabled");
             return;
         }
         NSError *err = nil;
@@ -343,8 +340,6 @@ static NSDictionary<NSString *, id> *cornersToDict(
         if (err) {
             NSLog(@"[CardDetector] failed to load encoder: %@", err);
             model = nil;
-        } else {
-            NSLog(@"[CardDetector] encoder loaded ok");
         }
     });
     return model;

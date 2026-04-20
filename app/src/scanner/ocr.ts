@@ -241,17 +241,8 @@ export type ImageScanResult = {
  */
 export async function scanCardByImage(uri: string): Promise<ImageScanResult | null> {
   const match = await findCardByImage(uri);
-  if (!match) {
-    console.log('[image-scan] no match (encoder/embeddings not ready or empty)');
-    return null;
-  }
-  const top3 = match.topK.map(t => `${t.scryfallId.slice(0, 8)}=${t.score.toFixed(3)}`).join(', ');
-  console.log(`[image-scan] score=${match.score.toFixed(3)} top3=[${top3}]`);
-  if (match.score < MATCH_MIN) {
-    console.log(`[image-scan] below MATCH_MIN (${MATCH_MIN}) — reject`);
-    return null;
-  }
+  if (!match) return null;
+  if (match.score < MATCH_MIN) return null;
   const card = await resolveCardById(match.scryfallId);
-  console.log(`[image-scan] accepted: ${card.name} (score=${match.score.toFixed(3)})`);
   return { strategy: 'image', match, card };
 }

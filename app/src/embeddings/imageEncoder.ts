@@ -21,17 +21,15 @@ export async function isImageSearchReady(): Promise<boolean> {
  *   - The returned vector isn't the expected length (256)
  */
 export async function encodeCardImage(uri: string): Promise<Float32Array | null> {
-  console.log('[imageEncoder/v2] entry uri=' + uri);
   try {
     const vec = await encodeImage(uri);
-    console.log('[imageEncoder/v2] native returned: ' + (vec === null ? 'null' : `len=${vec.length}`));
     if (vec && vec.length === 256) {
       readinessCached = true;
       return vec;
     }
     return null;
   } catch (err) {
-    console.warn('[imageEncoder/v2] native call threw:', err);
+    console.warn('[imageEncoder] native call threw:', err);
     return null;
   }
 }

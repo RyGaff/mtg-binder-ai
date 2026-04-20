@@ -22,27 +22,16 @@ const TOP_K = 3;
  */
 export async function findCardByImage(uri: string): Promise<ImageMatch | null> {
   const query = await encodeCardImage(uri);
-  if (!query) {
-    console.log('[imageSearch] encoder returned null');
-    return null;
-  }
+  if (!query) return null;
 
   let index;
   try {
     index = await getImageEmbeddingMap();
-  } catch (err) {
-    console.log('[imageSearch] parser error:', err instanceof Error ? err.message : String(err));
+  } catch {
     return null;
   }
-  console.log(`[imageSearch] index loaded version=${index.version} byId.size=${index.byId.size} dim=${index.dim}`);
-  if (index.version !== 2) {
-    console.log(`[imageSearch] wrong version (expected 2, got ${index.version}) — is the correct embeddings file downloaded?`);
-    return null;
-  }
-  if (index.byId.size === 0) {
-    console.log('[imageSearch] empty byId map');
-    return null;
-  }
+  if (index.version !== 2) return null;
+  if (index.byId.size === 0) return null;
 
   // Linear scan — 35k × 256 dot products ≈ 9M MACs, ~30 ms on phone.
   type Hit = { id: string; score: number };

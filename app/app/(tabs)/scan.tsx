@@ -15,7 +15,7 @@ import { useSharedValue, useRunOnJS } from 'react-native-worklets-core';
 import * as ImagePicker from 'expo-image-picker';
 import { useRef, useState, useCallback, useEffect } from 'react';
 import { useRouter } from 'expo-router';
-import { scanCardByImage, MATCH_ACCEPT } from '../../src/scanner/ocr';
+import { scanCard, scanCardByImage, MATCH_ACCEPT } from '../../src/scanner/ocr';
 import { upsertCard } from '../../src/db/cards';
 import { clearSessionCardCache } from '../../src/api/cards';
 import { useStore } from '../../src/store/useStore';
@@ -495,16 +495,13 @@ export default function ScanScreen() {
       // vision-camera returns `path` with or without `file://` depending on platform/version.
       const uri = photo.path.startsWith('file://') ? photo.path : `file://${photo.path}`;
 
-      // DEBUG MODE: image-embedding path ONLY — OCR fallback disabled.
-      // Detect + rectify first so the encoder sees a 400×560 crop of just
-      // the card (matching the scryfall-style inputs the embeddings were
-      // built from) instead of a photo full of wood grain + neighbors.
+      // Try image-embedding identification first. The encoder is trained on
+      // scryfall-style full-card crops, so rectify first when we can; fall
+      // back to the raw photo when detection fails.
       const corners = await detectCardCorners(uri).catch(() => null);
       const cardUri = corners?.rectifiedUri ?? uri;
-      console.log(`[image-scan] rectifiedUri=${corners?.rectifiedUri ? 'yes' : 'no, using raw photo'}`);
       const imageResult = await scanCardByImage(cardUri);
       if (imageResult && imageResult.match.score >= MATCH_ACCEPT) {
-        console.log(`[image-scan] HIT ${imageResult.card.name} score=${imageResult.match.score.toFixed(3)}`);
         upsertCard(imageResult.card);
         addRecentScan(imageResult.card);
         setLastScannedId(imageResult.card.scryfall_id);
@@ -517,12 +514,33 @@ export default function ScanScreen() {
         return;
       }
 
-      const reason = imageResult
-        ? `below MATCH_ACCEPT (score=${imageResult.match.score.toFixed(3)} < ${MATCH_ACCEPT})`
-        : 'null (encoder or embeddings not ready, or score < MATCH_MIN)';
-      console.log(`[image-scan] MISS ${reason} — OCR fallback disabled, aborting`);
+      // Fall through to OCR (set-number → name).
+      const result = await scanCard(uri, (p) => {
+        if (p.step === 'corners_detected') {
+          setDetection({ corners: p.corners, imageW: p.imageW, imageH: p.imageH });
+          setActiveRegion('bl');
+        } else if (p.step === 'bl_ocr_done') {
+          setBlText(p.blText);
+        } else if (p.step === 'bl_parsed') {
+          setParsedInfo(p.parsed);
+          if (!p.parsed) setActiveRegion('name');
+        } else if (p.step === 'fetching') {
+          setQueryInfo(`Scryfall: ${p.query}`);
+          setPhase({ status: 'fetching' });
+        } else if (p.step === 'name_ocr_done') {
+          setOcrText(p.nameText);
+        }
+      }, { width: photo.width, height: photo.height });
+      upsertCard(result.card);
+      addRecentScan(result.card);
+      setLastScannedId(result.card.scryfall_id);
+      setScanStrategy(result.strategy);
+      setOcrText(result.ocrText);
+      setSuccessCard(result.card.name);
       setActiveRegion(null);
-      setPhase({ status: 'error', message: `No match (${reason})` });
+      setPhase({ status: 'idle' });
+      await new Promise<void>(resolve => setTimeout(resolve, 1500));
+      setSuccessCard(null);
     } catch (e) {
       const msg = e instanceof Error ? e.message : 'Unknown error';
       console.warn('[scan]', msg);
@@ -622,14 +640,10 @@ export default function ScanScreen() {
     setParsedInfo(null);
     setQueryInfo(null);
     try {
-      // DEBUG MODE: image-embedding path ONLY — OCR fallback disabled.
-      console.log('[image-scan] library pick → scanCardByImage');
       const corners = await detectCardCorners(asset.uri).catch(() => null);
       const cardUri = corners?.rectifiedUri ?? asset.uri;
-      console.log(`[image-scan] rectifiedUri=${corners?.rectifiedUri ? 'yes' : 'no, using raw'}`);
       const imageResult = await scanCardByImage(cardUri);
       if (imageResult && imageResult.match.score >= MATCH_ACCEPT) {
-        console.log(`[image-scan] HIT ${imageResult.card.name} score=${imageResult.match.score.toFixed(3)}`);
         upsertCard(imageResult.card);
         addRecentScan(imageResult.card);
         setLastScannedId(imageResult.card.scryfall_id);
@@ -639,12 +653,32 @@ export default function ScanScreen() {
         setPhase({ status: 'idle' });
         return;
       }
-      const reason = imageResult
-        ? `below MATCH_ACCEPT (score=${imageResult.match.score.toFixed(3)} < ${MATCH_ACCEPT})`
-        : 'null (encoder or embeddings not ready, or score < MATCH_MIN)';
-      console.log(`[image-scan] MISS ${reason} — OCR fallback disabled`);
+
+      // Fall through to OCR.
+      const result = await scanCard(asset.uri, (p) => {
+        if (p.step === 'corners_detected') {
+          setDetection({ corners: p.corners, imageW: p.imageW, imageH: p.imageH });
+          setActiveRegion('bl');
+        } else if (p.step === 'bl_ocr_done') {
+          setBlText(p.blText);
+        } else if (p.step === 'bl_parsed') {
+          setParsedInfo(p.parsed);
+          if (!p.parsed) setActiveRegion('name');
+        } else if (p.step === 'fetching') {
+          setQueryInfo(`Scryfall: ${p.query}`);
+          setPhase({ status: 'fetching' });
+        } else if (p.step === 'name_ocr_done') {
+          setOcrText(p.nameText);
+        }
+      });
+      upsertCard(result.card);
+      addRecentScan(result.card);
+      setLastScannedId(result.card.scryfall_id);
+      setScanStrategy(result.strategy);
+      setOcrText(result.ocrText);
+      setSuccessCard(result.card.name);
       setActiveRegion(null);
-      setPhase({ status: 'error', message: `No match (${reason})` });
+      setPhase({ status: 'idle' });
     } catch (e) {
       const msg = e instanceof Error ? e.message : 'Unknown error';
       console.warn('[scan] library:', msg);

@@ -25,8 +25,10 @@ export async function encodeCardImage(uri: string): Promise<Float32Array | null>
     const vec = await encodeImage(uri);
     if (vec && vec.length === 256) {
       readinessCached = true;
+      console.log(`[imageEncoder] ok len=${vec.length} uri=${uri}`);
       return vec;
     }
+    console.log(`[imageEncoder] bad-shape vec=${vec === null ? 'null' : `len=${vec.length}`} uri=${uri}`);
     return null;
   } catch (err) {
     console.warn('[imageEncoder] native call failed:', err);

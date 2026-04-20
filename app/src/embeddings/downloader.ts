@@ -98,14 +98,17 @@ export async function checkAndDownloadImage(
   setStatus: (status: EmbeddingStatus) => void
 ): Promise<void> {
   try {
+    console.log('[embeddings:image] fetching manifest:', MANIFEST_URL);
     const response = await fetch(MANIFEST_URL);
     if (!response.ok) {
+      console.log('[embeddings:image] manifest fetch failed:', response.status);
       setStatus('error');
       return;
     }
     const manifest: Manifest = await response.json();
     const entry = manifest.image_embeddings;
     if (!entry) {
+      console.log('[embeddings:image] manifest has no image_embeddings key');
       setStatus('idle');
       return;
     }
@@ -113,15 +116,19 @@ export async function checkAndDownloadImage(
     const file = getImageEmbeddingsFile();
     const versionFile = getImageVersionFile();
     const local = await readVersion(versionFile);
+    console.log(`[embeddings:image] file.exists=${file.exists} local=${local} remote=${entry.version}`);
     if (file.exists && local === entry.version) {
+      console.log('[embeddings:image] already up to date');
       setStatus('idle');
       return;
     }
 
+    console.log(`[embeddings:image] downloading ${entry.url} → ${file.uri}`);
     setStatus('downloading');
     await File.downloadFileAsync(entry.url, file, { idempotent: true });
     versionFile.write(entry.version);
     clearEmbeddingCache();
+    console.log(`[embeddings:image] downloaded ok, size=${file.size ?? 'unknown'} bytes`);
     setStatus('idle');
   } catch (e) {
     console.log('[embeddings] checkAndDownloadImage error:', e);

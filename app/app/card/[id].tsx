@@ -67,7 +67,7 @@ export default function CardDetailModal() {
 
   return (
     <ScrollView style={[styles.screen, { backgroundColor: theme.bg }]} contentContainerStyle={styles.content}>
-      <TouchableOpacity style={styles.closeBtn} onPress={() => router.back()}>
+      <TouchableOpacity style={styles.closeBtn} onPress={() => (router.canGoBack() ? router.back() : router.replace('/'))}>
         <Text style={[styles.closeBtnText, { color: theme.textSecondary }]}>✕</Text>
       </TouchableOpacity>
       <View style={styles.row}>

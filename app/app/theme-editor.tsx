@@ -53,7 +53,9 @@ export default function ThemeEditorScreen() {
   const [expandedToken, setExpandedToken] = useState<TokenKey | null>(null);
 
   useEffect(() => {
-    if (!isValidSlot) router.back();
+    if (!isValidSlot) {
+      if (router.canGoBack()) router.back(); else router.replace('/');
+    }
   }, [isValidSlot]);
 
   if (!isValidSlot) return null;
@@ -72,13 +74,13 @@ export default function ThemeEditorScreen() {
     if (mode === 'new' || theme === customName) {
       setTheme(customName);
     }
-    router.back();
+    if (router.canGoBack()) router.back(); else router.replace('/');
   };
 
   const handleDelete = () => {
     if (theme === customName) setTheme('dark');
     deleteCustomTheme(slot);
-    router.back();
+    if (router.canGoBack()) router.back(); else router.replace('/');
   };
 
   return (
@@ -86,7 +88,7 @@ export default function ThemeEditorScreen() {
       {/* Close button */}
       <TouchableOpacity
         style={styles.closeBtn}
-        onPress={() => router.back()}
+        onPress={() => (router.canGoBack() ? router.back() : router.replace('/'))}
         accessibilityLabel="Close without saving"
         accessibilityRole="button"
       >

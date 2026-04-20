@@ -1,6 +1,6 @@
 import * as ImageManipulator from 'expo-image-manipulator';
 import { File, Paths } from 'expo-file-system';
-import { detectCardCorners } from '../../modules/card-detector/src';
+import { detectCardCorners, type CardCorners } from '../../modules/card-detector/src';
 import { fetchCardBySetNumber, fetchCardByName } from '../api/scryfall';
 import { resolveCardById } from '../api/cards';
 import type { CachedCard } from '../db/cards';
@@ -100,8 +100,12 @@ export async function scanCard(
   uri: string,
   onProgress?: (p: ScanProgress) => void,
   imageSize?: { width: number; height: number },
+  precomputedCorners?: CardCorners | null,
 ): Promise<ScanResult> {
-  const corners = await detectCardCorners(uri);
+  // Skip re-running OpenCV when the caller already has a detection for this
+  // photo (e.g. the image-embedding path calls detectCardCorners first to
+  // produce a rectified crop).
+  const corners = precomputedCorners ?? await detectCardCorners(uri);
   if (!corners) throw new Error('No card detected in image');
 
   const useRectified = !!corners.rectifiedUri;

@@ -500,7 +500,8 @@ export default function ScanScreen() {
         return;
       }
 
-      // Fall through to OCR (set-number → name).
+      // Fall through to OCR (set-number → name). Reuse the corners we
+      // already detected to avoid re-running OpenCV on the same photo.
       const result = await scanCard(uri, (p) => {
         if (p.step === 'corners_detected') {
           setDetection({ corners: p.corners, imageW: p.imageW, imageH: p.imageH });
@@ -516,7 +517,7 @@ export default function ScanScreen() {
         } else if (p.step === 'name_ocr_done') {
           setOcrText(p.nameText);
         }
-      }, { width: photo.width, height: photo.height });
+      }, { width: photo.width, height: photo.height }, corners);
       upsertCard(result.card);
       addRecentScan(result.card);
       setLastScannedId(result.card.scryfall_id);
@@ -635,7 +636,7 @@ export default function ScanScreen() {
         } else if (p.step === 'name_ocr_done') {
           setOcrText(p.nameText);
         }
-      });
+      }, undefined, corners);
       upsertCard(result.card);
       addRecentScan(result.card);
       setLastScannedId(result.card.scryfall_id);

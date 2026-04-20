@@ -384,11 +384,13 @@ static NSDictionary<NSString *, id> *cornersToDict(
     MLFeatureValue *vec = [output featureValueForName:@"output"];
     MLMultiArray *arr = vec.multiArrayValue;
     if (!arr) return nil;
+    if (arr.dataType != MLMultiArrayDataTypeFloat32) return nil;
 
     NSUInteger count = arr.count;
+    const float *src = (const float *)arr.dataPointer;
     NSMutableArray<NSNumber *> *out = [NSMutableArray arrayWithCapacity:count];
     for (NSUInteger i = 0; i < count; i++) {
-        [out addObject:@([arr[@(i)] floatValue])];
+        [out addObject:@(src[i])];
     }
     return [out copy];
 }

@@ -46,10 +46,8 @@ export async function checkAndDownload(
   try {
     const embeddingsFile = getEmbeddingsFile();
     const localVersion = await getLocalVersion();
-    console.log('[embeddings] fileExists:', embeddingsFile.exists, 'localVersion:', localVersion);
 
     if (embeddingsFile.exists && localVersion) {
-      console.log('[embeddings] local file present, setting idle');
       setStatus('idle');
       // Run both update checks silently in background
       checkForUpdate(localVersion).catch(() => {});

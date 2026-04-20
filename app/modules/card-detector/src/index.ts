@@ -59,9 +59,7 @@ export async function detectCardCorners(imageUri: string): Promise<CardCorners |
 }
 
 export function initCardDetectorPlugin(): FrameProcessorPlugin | null {
-  const p = VisionCameraProxy.initFrameProcessorPlugin('detectCardCornersInFrame', {}) ?? null;
-  console.log('[CardDetector] plugin:', p == null ? 'NULL - not registered!' : 'OK');
-  return p;
+  return VisionCameraProxy.initFrameProcessorPlugin('detectCardCornersInFrame', {}) ?? null;
 }
 
 export type DetectionStats = {

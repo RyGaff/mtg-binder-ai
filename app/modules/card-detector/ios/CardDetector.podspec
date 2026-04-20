@@ -20,6 +20,7 @@ Pod::Spec.new do |s|
   s.pod_target_xcconfig = {
     'CLANG_CXX_LANGUAGE_STANDARD' => 'c++17',
     'OTHER_CPLUSPLUSFLAGS' => '-fexceptions -frtti',
-    'HEADER_SEARCH_PATHS' => '"${PODS_TARGET_SRCROOT}/../cpp"',
+    # $(inherited) preserves OpenCV2 + CocoaPods-provided paths
+    'HEADER_SEARCH_PATHS' => '$(inherited) "${PODS_TARGET_SRCROOT}/../cpp"',
   }
 end

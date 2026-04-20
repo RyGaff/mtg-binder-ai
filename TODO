@@ -1,5 +1,5 @@
 PRIO:
-    Fix Scanner
+    ~~Fix Scanner~~
 
 
 Tabs:
@@ -20,7 +20,7 @@ Tabs:
         Purchase 
         Share, export, import 
     Scan:
-        Fix scanner
+        ~~Fix scanner~~
         More detail on card boundries
         price scan 
         add to collection 

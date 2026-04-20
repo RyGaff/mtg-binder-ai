@@ -29,7 +29,7 @@ export async function encodeCardImage(uri: string): Promise<Float32Array | null>
     }
     return null;
   } catch (err) {
-    console.warn('[imageEncoder] native call failed:', err);
+    console.warn('[imageEncoder] native call threw:', err);
     return null;
   }
 }

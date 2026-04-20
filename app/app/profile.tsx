@@ -44,7 +44,7 @@ export default function ProfileScreen() {
     <View style={[styles.screen, { backgroundColor: t.bg }]}>
       <TouchableOpacity
         style={styles.closeBtn}
-        onPress={() => router.back()}
+        onPress={() => (router.canGoBack() ? router.back() : router.replace('/'))}
         accessibilityLabel="Close"
         accessibilityRole="button"
       >

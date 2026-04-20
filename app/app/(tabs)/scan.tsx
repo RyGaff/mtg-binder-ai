@@ -21,7 +21,7 @@ import { clearSessionCardCache } from '../../src/api/cards';
 import { useStore } from '../../src/store/useStore';
 import { useTheme } from '../../src/theme/useTheme';
 import type { CardCorners } from '../../modules/card-detector/src';
-import { detectCardCornersInFrame, initCardDetectorPlugin, CARD_CONFIDENCE_STABLE } from '../../modules/card-detector/src';
+import { detectCardCorners, detectCardCornersInFrame, initCardDetectorPlugin, CARD_CONFIDENCE_STABLE } from '../../modules/card-detector/src';
 import type { FrameProcessorPlugin } from 'react-native-vision-camera';
 
 type ScanPhase =
@@ -421,24 +421,10 @@ export default function ScanScreen() {
   const [parsedInfo, setParsedInfo] = useState<{ setCode: string; collectorNumber: string } | null>(null);
   const [queryInfo, setQueryInfo] = useState<string | null>(null);
   const [cardPlugin, setCardPlugin] = useState<FrameProcessorPlugin | null>(null);
-  const [debugFrames, setDebugFrames] = useState(0);
-  const [debugHits, setDebugHits] = useState(0);
-  const [debugLastConf, setDebugLastConf] = useState<number | null>(null);
-  const [debugPixFmt, setDebugPixFmt] = useState<string | null>(null);
-  const [debugFrameSize, setDebugFrameSize] = useState<{ w: number; h: number } | null>(null);
-  const [debugStats, setDebugStats] = useState<{
-    medianLuma: number; edgePixels: number;
-    contoursTotal: number; passed4Vertex: number; passedMinArea: number;
-    passedConvex: number; passedAngles: number; passedAR: number;
-  } | null>(null);
-  const [debugDetSet, setDebugDetSet] = useState(0);
-  const [debugDetCleared, setDebugDetCleared] = useState(0);
   const cameraRef = useRef<Camera>(null);
 
   useEffect(() => {
-    const p = initCardDetectorPlugin();
-    console.log('[CardDetector] plugin init:', p == null ? 'NULL' : 'OK');
-    setCardPlugin(p);
+    setCardPlugin(initCardDetectorPlugin());
   }, []);
 
   useEffect(() => {
@@ -489,10 +475,33 @@ export default function ScanScreen() {
       setPhase({ status: 'scanning' });
       setOcrText(null);
       setBlText(null);
-      const photo = await cameraRef.current.takePhoto({ qualityPrioritization: 'speed' });
-      const uri = `file://${photo.path}`;
       setParsedInfo(null);
       setQueryInfo(null);
+      const photo = await cameraRef.current.takePhoto({ qualityPrioritization: 'speed' });
+      // vision-camera returns `path` with or without `file://` depending on platform/version.
+      const uri = photo.path.startsWith('file://') ? photo.path : `file://${photo.path}`;
+
+      // Try image-embedding identification first. The encoder is trained on
+      // scryfall-style full-card crops, so rectify first when we can; fall
+      // back to the raw photo when detection fails.
+      const corners = await detectCardCorners(uri).catch(() => null);
+      const cardUri = corners?.rectifiedUri ?? uri;
+      const imageResult = await scanCardByImage(cardUri);
+      if (imageResult && imageResult.match.score >= MATCH_ACCEPT) {
+        upsertCard(imageResult.card);
+        addRecentScan(imageResult.card);
+        setLastScannedId(imageResult.card.scryfall_id);
+        setScanStrategy(null);
+        setSuccessCard(imageResult.card.name);
+        setActiveRegion(null);
+        setPhase({ status: 'idle' });
+        await new Promise<void>(r => setTimeout(r, 1500));
+        setSuccessCard(null);
+        return;
+      }
+
+      // Fall through to OCR (set-number → name). Reuse the corners we
+      // already detected to avoid re-running OpenCV on the same photo.
       const result = await scanCard(uri, (p) => {
         if (p.step === 'corners_detected') {
           setDetection({ corners: p.corners, imageW: p.imageW, imageH: p.imageH });
@@ -508,7 +517,7 @@ export default function ScanScreen() {
         } else if (p.step === 'name_ocr_done') {
           setOcrText(p.nameText);
         }
-      }, { width: photo.width, height: photo.height });
+      }, { width: photo.width, height: photo.height }, corners);
       upsertCard(result.card);
       addRecentScan(result.card);
       setLastScannedId(result.card.scryfall_id);
@@ -532,38 +541,17 @@ export default function ScanScreen() {
   const jsSetDetection = useRunOnJS(
     (d: DetectionInfo | null) => {
       setDetection(d);
-      if (d) setDebugDetSet(n => n + 1);
-      else   setDebugDetCleared(n => n + 1);
     },
     [setDetection],
   );
   const jsTriggerOcr = useRunOnJS(triggerOcr, [triggerOcr]);
-  const jsDebugTick = useRunOnJS(
-    (
-      hit: boolean,
-      confidence: number | null,
-      pixelFormat: string | null,
-      frameW: number,
-      frameH: number,
-      stats: typeof debugStats,
-    ) => {
-      setDebugFrames(n => n + 1);
-      if (hit) setDebugHits(n => n + 1);
-      setDebugLastConf(confidence);
-      if (pixelFormat) setDebugPixFmt(pixelFormat);
-      if (frameW > 0 && frameH > 0) setDebugFrameSize({ w: frameW, h: frameH });
-      if (stats) setDebugStats(stats);
-    },
-    [],
-  );
 
   const frameProcessor = useFrameProcessor((frame: Frame) => {
     'worklet';
     if (cardPlugin == null) return;
     if (isCapturing.value) return;
 
-    const { corners: raw, debug } = detectCardCornersInFrame(frame, cardPlugin);
-    jsDebugTick(raw != null, raw?.confidence ?? null, debug.pixelFormat, debug.frameW, debug.frameH, debug.stats);
+    const { corners: raw } = detectCardCornersInFrame(frame, cardPlugin);
 
     if (raw) {
       const prev = smoothedCornersWv.value;
@@ -600,7 +588,7 @@ export default function ScanScreen() {
         jsSetDetection(null);
       }
     }
-  }, [cardPlugin, isCapturing, smoothedCornersWv, stableCount, missCount, jsTriggerOcr, jsSetDetection, jsDebugTick]);
+  }, [cardPlugin, isCapturing, smoothedCornersWv, stableCount, missCount, jsTriggerOcr, jsSetDetection]);
 
   const pickFromLibrary = useCallback(async () => {
     isCapturing.value = false;
@@ -618,6 +606,21 @@ export default function ScanScreen() {
     setParsedInfo(null);
     setQueryInfo(null);
     try {
+      const corners = await detectCardCorners(asset.uri).catch(() => null);
+      const cardUri = corners?.rectifiedUri ?? asset.uri;
+      const imageResult = await scanCardByImage(cardUri);
+      if (imageResult && imageResult.match.score >= MATCH_ACCEPT) {
+        upsertCard(imageResult.card);
+        addRecentScan(imageResult.card);
+        setLastScannedId(imageResult.card.scryfall_id);
+        setScanStrategy(null);
+        setSuccessCard(imageResult.card.name);
+        setActiveRegion(null);
+        setPhase({ status: 'idle' });
+        return;
+      }
+
+      // Fall through to OCR.
       const result = await scanCard(asset.uri, (p) => {
         if (p.step === 'corners_detected') {
           setDetection({ corners: p.corners, imageW: p.imageW, imageH: p.imageH });
@@ -633,7 +636,7 @@ export default function ScanScreen() {
         } else if (p.step === 'name_ocr_done') {
           setOcrText(p.nameText);
         }
-      });
+      }, undefined, corners);
       upsertCard(result.card);
       addRecentScan(result.card);
       setLastScannedId(result.card.scryfall_id);
@@ -712,48 +715,8 @@ export default function ScanScreen() {
   const cameraOverlay       = buildOverlay(true);
   const pickedImageOverlay  = buildOverlay(false);
 
-  // Projected corner coords (for debug readout so we can see where the quad is drawing)
-  const projTL = detection
-    ? imageToScreen(detection.corners.topLeft.x, detection.corners.topLeft.y,
-                    detection.imageW, detection.imageH,
-                    overlayLayout.width, overlayLayout.height, true)
-    : null;
-  const projBR = detection
-    ? imageToScreen(detection.corners.bottomRight.x, detection.corners.bottomRight.y,
-                    detection.imageW, detection.imageH,
-                    overlayLayout.width, overlayLayout.height, true)
-    : null;
-
   return (
     <View style={styles.screen}>
-      {/* Debug overlay — plugin, frames, hits, conf, pixel fmt, per-stage stats */}
-      <View style={debugStyles.devBadge} pointerEvents="none">
-        <Text style={debugStyles.devText}>
-          {'plugin: ' + (cardPlugin == null ? 'NULL' : 'OK') +
-           '\nframes: ' + debugFrames +
-           '\nhits:   ' + debugHits +
-           '\ndSet:   ' + debugDetSet +
-           '\ndClr:   ' + debugDetCleared +
-           '\ndet?:   ' + (detection ? 'YES' : 'no') +
-           '\nconf:   ' + (debugLastConf == null ? '—' : debugLastConf.toFixed(3)) +
-           '\nfmt:    ' + (debugPixFmt ?? '—') +
-           '\nsize:   ' + (debugFrameSize ? debugFrameSize.w + 'x' + debugFrameSize.h : '—') +
-           '\nview:   ' + Math.round(overlayLayout.width) + 'x' + Math.round(overlayLayout.height) +
-           (projTL ? '\ntl:     ' + Math.round(projTL.x) + ',' + Math.round(projTL.y) : '') +
-           (projBR ? '\nbr:     ' + Math.round(projBR.x) + ',' + Math.round(projBR.y) : '') +
-           (debugStats
-              ? '\nmedLum: ' + debugStats.medianLuma +
-                '\nedges:  ' + debugStats.edgePixels +
-                '\ncont:   ' + debugStats.contoursTotal +
-                '\n4vert:  ' + debugStats.passed4Vertex +
-                '\narea:   ' + debugStats.passedMinArea +
-                '\nconv:   ' + debugStats.passedConvex +
-                '\nang:    ' + debugStats.passedAngles +
-                '\nAR:     ' + debugStats.passedAR
-              : '')}
-        </Text>
-      </View>
-
       {/* Error toast — absolute, pinned to top */}
       {phase.status === 'error' && (
         <ErrorToast message={phase.message} />
@@ -966,21 +929,6 @@ const styles = StyleSheet.create({
 });
 
 const debugStyles = StyleSheet.create({
-  devBadge: {
-    position: 'absolute',
-    top: 60,
-    left: 10,
-    zIndex: 999,
-    backgroundColor: 'rgba(0,0,0,0.82)',
-    padding: 6,
-    borderRadius: 6,
-  },
-  devText: {
-    color: '#0f0',
-    fontSize: 11,
-    fontFamily: 'monospace',
-    lineHeight: 14,
-  },
   panel: {
     position: 'absolute',
     bottom: 96,

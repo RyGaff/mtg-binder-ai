@@ -64,8 +64,11 @@ class CardDetectorModule : Module() {
 
         AsyncFunction("detectCardCorners") { uri: String ->
             val path = if (uri.startsWith("file://")) uri.removePrefix("file://") else uri
-            val raw = detectCornersNative(path) ?: return@AsyncFunction null
-            if (raw.size != 9) return@AsyncFunction null
+            val raw = detectCornersNative(path)
+                ?: return@AsyncFunction mapOf<String, Any>("_error" to "detect_failed")
+            if (raw.size != 9) {
+                return@AsyncFunction mapOf<String, Any>("_error" to "detect_bad_shape")
+            }
 
             val rectPath = "$path.rect.jpg"
             val rectFile = File(rectPath)
@@ -81,17 +84,37 @@ class CardDetectorModule : Module() {
         }
 
         AsyncFunction("encodeImage") { uri: String ->
-            val itp = loadInterpreter() ?: return@AsyncFunction null
+            val itp = loadInterpreter()
+                ?: return@AsyncFunction mapOf<String, Any>("error" to "interpreter not loaded (card_encoder.tflite missing from assets?)")
             val path = if (uri.startsWith("file://")) uri.removePrefix("file://") else uri
-            val bmp = BitmapFactory.decodeFile(path) ?: return@AsyncFunction null
-            val resized = Bitmap.createScaledBitmap(bmp, 224, 224, true)
+            val bmp = BitmapFactory.decodeFile(path)
+                ?: return@AsyncFunction mapOf<String, Any>("error" to "image decode failed: $path")
+
+            // Mirror albumentations training transform:
+            //   LongestMaxSize(224) + PadIfNeeded(224, 224, fill=0)
+            // so card aspect ratio is preserved and the short side is
+            // center-padded with black, matching what the encoder was trained
+            // on. Otherwise a card (aspect ≈ 0.71) gets squashed to square.
+            val side = 224
+            val scale = side.toFloat() / maxOf(bmp.width, bmp.height)
+            val drawW = (bmp.width * scale).toInt().coerceAtLeast(1)
+            val drawH = (bmp.height * scale).toInt().coerceAtLeast(1)
+            val resized = Bitmap.createScaledBitmap(bmp, drawW, drawH, true)
             bmp.recycle()
 
-            val input = ByteBuffer.allocateDirect(4 * 224 * 224 * 3)
-                .order(ByteOrder.nativeOrder())
-            val pixels = IntArray(224 * 224)
-            resized.getPixels(pixels, 0, 224, 0, 0, 224, 224)
+            val canvas = Bitmap.createBitmap(side, side, Bitmap.Config.ARGB_8888)
+            val canvasPainter = android.graphics.Canvas(canvas)
+            canvasPainter.drawColor(android.graphics.Color.BLACK)
+            val offsetX = (side - drawW) / 2f
+            val offsetY = (side - drawH) / 2f
+            canvasPainter.drawBitmap(resized, offsetX, offsetY, null)
             resized.recycle()
+
+            val input = ByteBuffer.allocateDirect(4 * side * side * 3)
+                .order(ByteOrder.nativeOrder())
+            val pixels = IntArray(side * side)
+            canvas.getPixels(pixels, 0, side, 0, 0, side, side)
+            canvas.recycle()
 
             for (p in pixels) {
                 input.putFloat(((p shr 16) and 0xFF) / 255f)  // R
@@ -105,9 +128,13 @@ class CardDetectorModule : Module() {
                 itp.run(input, output)
             } catch (e: Exception) {
                 Log.w("CardDetector", "TFLite inference failed", e)
-                return@AsyncFunction null
+                return@AsyncFunction mapOf<String, Any>(
+                    "error" to "inference failed: ${e.message ?: e.javaClass.simpleName}"
+                )
             }
-            return@AsyncFunction output[0].toList().map { it.toDouble() }
+            return@AsyncFunction mapOf<String, Any>(
+                "embedding" to output[0].toList().map { it.toDouble() }
+            )
         }
     }
 }

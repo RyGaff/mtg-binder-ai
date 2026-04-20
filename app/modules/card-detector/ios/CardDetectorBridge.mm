@@ -59,22 +59,6 @@ static cv::Mat grayMatFromSampleBuffer(CMSampleBufferRef sampleBuffer) {
     CVPixelBufferRef pixelBuffer = CMSampleBufferGetImageBuffer(sampleBuffer);
     if (!pixelBuffer) return cv::Mat();
 
-    OSType fmt = CVPixelBufferGetPixelFormatType(pixelBuffer);
-
-    // One-time log so we can see the format in device console
-    static dispatch_once_t once;
-    dispatch_once(&once, ^{
-        char fcc[5] = {
-            (char)((fmt >> 24) & 0xff), (char)((fmt >> 16) & 0xff),
-            (char)((fmt >> 8)  & 0xff), (char)( fmt        & 0xff), 0
-        };
-        NSLog(@"[CardDetector] first frame pixelFormat=%s (%u) planar=%s w=%zu h=%zu",
-              fcc, (unsigned)fmt,
-              CVPixelBufferIsPlanar(pixelBuffer) ? "Y" : "N",
-              CVPixelBufferGetWidth(pixelBuffer),
-              CVPixelBufferGetHeight(pixelBuffer));
-    });
-
     CVPixelBufferLockBaseAddress(pixelBuffer, kCVPixelBufferLock_ReadOnly);
     cv::Mat result;
 
@@ -199,13 +183,11 @@ static NSDictionary<NSString *, id> *cornersToDict(
 + (void)registerFrameProcessorPlugin {
     static dispatch_once_t onceToken;
     dispatch_once(&onceToken, ^{
-        NSLog(@"[CardDetector] Registering detectCardCornersInFrame...");
         [FrameProcessorPluginRegistry
             addFrameProcessorPlugin:@"detectCardCornersInFrame"
                     withInitializer:^FrameProcessorPlugin*(VisionCameraProxyHolder* proxy, NSDictionary* options) {
             return [[CardDetectorFrameProcessorPlugin alloc] initWithProxy:proxy withOptions:options];
         }];
-        NSLog(@"[CardDetector] Plugin registered OK");
     });
 }
 
@@ -216,7 +198,6 @@ static NSDictionary<NSString *, id> *cornersToDict(
 @implementation CardDetectorBridge
 
 + (void)load {
-    NSLog(@"[CardDetector] +load fired — registering plugin");
     [self registerFrameProcessorPlugin];
 }
 
@@ -233,7 +214,6 @@ static NSDictionary<NSString *, id> *cornersToDict(
         }
     }
     BOOL exists = [[NSFileManager defaultManager] fileExistsAtPath:path];
-    NSLog(@"[CardDetector] photo uri=%@ path=%@ exists=%d", uri, path, exists);
 
     UIImage *uiImage = [UIImage imageWithContentsOfFile:path];
     if (!uiImage || !uiImage.CGImage) {
@@ -243,8 +223,6 @@ static NSDictionary<NSString *, id> *cornersToDict(
             @"fileExists":   @(exists),
         };
     }
-    NSLog(@"[CardDetector] photo size=%.0fx%.0f orient=%ld",
-          uiImage.size.width, uiImage.size.height, (long)uiImage.imageOrientation);
 
     cv::Mat bgr = matFromUIImage(uiImage);
     if (bgr.empty()) {
@@ -257,7 +235,6 @@ static NSDictionary<NSString *, id> *cornersToDict(
         cv::Mat r;
         cv::rotate(bgr, r, cv::ROTATE_90_CLOCKWISE);
         bgr = r;
-        NSLog(@"[CardDetector] photo fallback-rotated to %dx%d", bgr.cols, bgr.rows);
     }
 
     // Downscale very large photos (takePhoto can yield 4032×3024). Keeping the
@@ -271,7 +248,6 @@ static NSDictionary<NSString *, id> *cornersToDict(
     } else {
         bgrSmall = bgr;
     }
-    NSLog(@"[CardDetector] photo processed mat=%dx%d", bgrSmall.cols, bgrSmall.rows);
 
     NSString *rectPath = [path stringByAppendingString:@".rect.jpg"];
     std::string rectPathStr = rectPath.UTF8String;
@@ -279,9 +255,6 @@ static NSDictionary<NSString *, id> *cornersToDict(
     CardCorners corners;
     DetectionStats stats;
     if (!detectCardCorners(bgrSmall, corners, &rectPathStr, &stats)) {
-        NSLog(@"[CardDetector] photo detect FAIL: contours=%d 4vert=%d area=%d conv=%d ang=%d AR=%d",
-              stats.contoursTotal, stats.passed4Vertex, stats.passedMinArea,
-              stats.passedConvex, stats.passedAngles, stats.passedAR);
         return @{
             @"_error": @"detect_failed",
             @"stats": @{
@@ -317,13 +290,25 @@ static NSDictionary<NSString *, id> *cornersToDict(
     static MLModel *model = nil;
     static dispatch_once_t onceToken;
     dispatch_once(&onceToken, ^{
-        NSString *path = [[NSBundle mainBundle] pathForResource:@"card_encoder" ofType:@"mlmodelc"];
-        if (!path) {
-            NSLog(@"[CardDetector] card_encoder.mlmodelc not bundled — encodeImage disabled");
+        NSString *pathC   = [[NSBundle mainBundle] pathForResource:@"card_encoder" ofType:@"mlmodelc"];
+        NSString *pathRaw = [[NSBundle mainBundle] pathForResource:@"card_encoder" ofType:@"mlmodel"];
+        NSURL *url = nil;
+        if (pathC) {
+            url = [NSURL fileURLWithPath:pathC];
+        } else if (pathRaw) {
+            // CocoaPods' s.resources copies .mlmodel as-is; compile at runtime
+            // if Xcode didn't produce a .mlmodelc.
+            NSError *compileErr = nil;
+            url = [MLModel compileModelAtURL:[NSURL fileURLWithPath:pathRaw] error:&compileErr];
+            if (compileErr || !url) {
+                NSLog(@"[CardDetector] mlmodel compile failed: %@", compileErr);
+                return;
+            }
+        } else {
+            NSLog(@"[CardDetector] card_encoder not bundled — encodeImage disabled");
             return;
         }
         NSError *err = nil;
-        NSURL *url = [NSURL fileURLWithPath:path];
         model = [MLModel modelWithContentsOfURL:url error:&err];
         if (err) {
             NSLog(@"[CardDetector] failed to load encoder: %@", err);
@@ -333,64 +318,101 @@ static NSDictionary<NSString *, id> *cornersToDict(
     return model;
 }
 
-+ (nullable NSArray<NSNumber *> *)encodeImageFromFileURI:(NSString *)uri {
++ (nonnull NSDictionary<NSString *, id> *)encodeImageFromFileURI:(NSString *)uri {
+    // Mirrors the Python training-time eval transform step-for-step:
+    //   1. decode file → UIImage  (RGB)
+    //   2. LongestMaxSize(224)    — aspect-preserving scale, long side = 224
+    //   3. PadIfNeeded(224,224)   — center-pad with zeros
+    //   4. extract RGB bytes, normalize to [0, 1] float32
+    //   5. fill NCHW tensor [1,3,224,224]  (TFLite side uses NHWC but
+    //      same steps 1-4; the channel-order difference is dictated by the
+    //      respective model exports)
+    //   6. run inference
+    //   7. copy 256-float output to an NSArray
+
     MLModel *model = [self loadEncoderModel];
-    if (!model) return nil;
+    if (!model) return @{@"error": @"model not loaded (see launch-time CardDetector logs)"};
 
     NSString *path = [uri hasPrefix:@"file://"] ? [uri substringFromIndex:7] : uri;
     UIImage *ui = [UIImage imageWithContentsOfFile:path];
-    if (!ui || !ui.CGImage) return nil;
+    if (!ui || !ui.CGImage) return @{@"error": [NSString stringWithFormat:@"image decode failed: %@", path]};
 
-    // Resize to 224×224 and render to a BGRA pixel buffer.
-    CGSize target = CGSizeMake(224, 224);
-    UIGraphicsBeginImageContextWithOptions(target, YES, 1.0);
-    [ui drawInRect:CGRectMake(0, 0, target.width, target.height)];
-    UIImage *resized = UIGraphicsGetImageFromCurrentImageContext();
-    UIGraphicsEndImageContext();
-    if (!resized || !resized.CGImage) return nil;
+    // Compute aspect-preserving target rect inside a 224×224 canvas.
+    const NSUInteger side = 224;
+    const NSUInteger plane = side * side;
+    const CGFloat origW = CGImageGetWidth(ui.CGImage);
+    const CGFloat origH = CGImageGetHeight(ui.CGImage);
+    const CGFloat scale = (CGFloat)side / MAX(origW, origH);
+    const CGFloat drawW = origW * scale;
+    const CGFloat drawH = origH * scale;
+    const CGFloat offsetX = ((CGFloat)side - drawW) / 2.0;
+    const CGFloat offsetY = ((CGFloat)side - drawH) / 2.0;
 
-    CVPixelBufferRef pb = NULL;
-    NSDictionary *attrs = @{
-        (NSString *)kCVPixelBufferCGImageCompatibilityKey: @YES,
-        (NSString *)kCVPixelBufferCGBitmapContextCompatibilityKey: @YES,
-    };
-    CVReturn st = CVPixelBufferCreate(
-        kCFAllocatorDefault, 224, 224,
-        kCVPixelFormatType_32ARGB,
-        (__bridge CFDictionaryRef)attrs, &pb);
-    if (st != kCVReturnSuccess || !pb) return nil;
+    // calloc zero-fills, so pixels outside the drawn rect are black — matches
+    // albumentations PadIfNeeded(border_mode=BORDER_CONSTANT, fill=0).
+    uint8_t *raw = (uint8_t *)calloc(plane * 4, sizeof(uint8_t));
+    if (!raw) return @{@"error": @"calloc failed"};
 
-    CVPixelBufferLockBaseAddress(pb, 0);
     CGColorSpaceRef cs = CGColorSpaceCreateDeviceRGB();
     CGContextRef ctx = CGBitmapContextCreate(
-        CVPixelBufferGetBaseAddress(pb), 224, 224, 8,
-        CVPixelBufferGetBytesPerRow(pb), cs,
-        kCGImageAlphaNoneSkipFirst | kCGBitmapByteOrder32Little);
-    CGContextDrawImage(ctx, CGRectMake(0, 0, 224, 224), resized.CGImage);
-    CGContextRelease(ctx);
+        raw, side, side, 8, side * 4, cs,
+        kCGImageAlphaPremultipliedLast | kCGBitmapByteOrder32Big);
     CGColorSpaceRelease(cs);
-    CVPixelBufferUnlockBaseAddress(pb, 0);
+    if (!ctx) { free(raw); return @{@"error": @"CGBitmapContextCreate failed"}; }
+    // Flip Y so our top-down row-major raw buffer matches the orientation
+    // PIL / BitmapFactory produce (Core Graphics has y=0 at the bottom,
+    // so CGContextDrawImage without this flip writes the image upside-down).
+    CGContextTranslateCTM(ctx, 0, side);
+    CGContextScaleCTM(ctx, 1.0, -1.0);
+    CGContextDrawImage(ctx, CGRectMake(offsetX, offsetY, drawW, drawH), ui.CGImage);
+    CGContextRelease(ctx);
 
+    // Model signature (from coremlcompiler metadata):
+    //   input  "image"     MultiArray Float32 [1, 3, 224, 224]  (NCHW)
+    //   output "embedding" MultiArray Float32 [1, 256]
     NSError *err = nil;
-    MLFeatureValue *fv = [MLFeatureValue featureValueWithPixelBuffer:pb];
+    MLMultiArray *mla = [[MLMultiArray alloc]
+        initWithShape:@[@1, @3, @(side), @(side)]
+             dataType:MLMultiArrayDataTypeFloat32
+                error:&err];
+    if (err || !mla) { free(raw); return @{@"error": [NSString stringWithFormat:@"MLMultiArray init: %@", err.localizedDescription ?: @"unknown"]}; }
+
+    // NCHW: fill all red values, then all green, then all blue. Each plane
+    // is 224*224 floats.
+    float *dst = (float *)mla.dataPointer;
+    for (NSUInteger i = 0; i < plane; i++) {
+        const NSUInteger src = i * 4;  // RGBA
+        dst[0 * plane + i] = raw[src + 0] / 255.0f;  // R
+        dst[1 * plane + i] = raw[src + 1] / 255.0f;  // G
+        dst[2 * plane + i] = raw[src + 2] / 255.0f;  // B
+    }
+    free(raw);
+
+    MLFeatureValue *fv = [MLFeatureValue featureValueWithMultiArray:mla];
     MLDictionaryFeatureProvider *input = [[MLDictionaryFeatureProvider alloc]
-        initWithDictionary:@{@"input": fv} error:&err];
-    CVPixelBufferRelease(pb);
-    if (err || !input) return nil;
+        initWithDictionary:@{@"image": fv} error:&err];
+    if (err || !input) return @{@"error": [NSString stringWithFormat:@"input build: %@", err.localizedDescription ?: @"unknown"]};
 
     id<MLFeatureProvider> output = [model predictionFromFeatures:input error:&err];
-    if (err || !output) return nil;
+    if (err || !output) return @{@"error": [NSString stringWithFormat:@"prediction: %@", err.localizedDescription ?: @"unknown"]};
 
-    MLFeatureValue *vec = [output featureValueForName:@"output"];
+    MLFeatureValue *vec = [output featureValueForName:@"embedding"];
+    if (!vec) return @{@"error": [NSString stringWithFormat:@"no 'embedding' feature, available=%@", [output featureNames]]};
+
     MLMultiArray *arr = vec.multiArrayValue;
-    if (!arr) return nil;
+    if (!arr) return @{@"error": [NSString stringWithFormat:@"multiArrayValue nil type=%ld", (long)vec.type]};
+    if (arr.dataType != MLMultiArrayDataTypeFloat32) {
+        return @{@"error": [NSString stringWithFormat:@"unexpected output dataType=%ld (want Float32=%ld)",
+                            (long)arr.dataType, (long)MLMultiArrayDataTypeFloat32]};
+    }
 
     NSUInteger count = arr.count;
+    const float *src = (const float *)arr.dataPointer;
     NSMutableArray<NSNumber *> *out = [NSMutableArray arrayWithCapacity:count];
     for (NSUInteger i = 0; i < count; i++) {
-        [out addObject:@([arr[@(i)] floatValue])];
+        [out addObject:@(src[i])];
     }
-    return [out copy];
+    return @{@"embedding": [out copy]};
 }
 
 @end

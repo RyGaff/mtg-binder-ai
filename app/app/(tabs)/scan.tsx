@@ -21,7 +21,7 @@ import { clearSessionCardCache } from '../../src/api/cards';
 import { useStore } from '../../src/store/useStore';
 import { useTheme } from '../../src/theme/useTheme';
 import type { CardCorners } from '../../modules/card-detector/src';
-import { detectCardCornersInFrame, initCardDetectorPlugin, CARD_CONFIDENCE_STABLE } from '../../modules/card-detector/src';
+import { detectCardCorners, detectCardCornersInFrame, initCardDetectorPlugin, CARD_CONFIDENCE_STABLE } from '../../modules/card-detector/src';
 import type { FrameProcessorPlugin } from 'react-native-vision-camera';
 
 type ScanPhase =
@@ -496,8 +496,13 @@ export default function ScanScreen() {
       const uri = photo.path.startsWith('file://') ? photo.path : `file://${photo.path}`;
 
       // DEBUG MODE: image-embedding path ONLY — OCR fallback disabled.
-      console.log('[image-scan] taking photo → scanCardByImage');
-      const imageResult = await scanCardByImage(uri);
+      // Detect + rectify first so the encoder sees a 400×560 crop of just
+      // the card (matching the scryfall-style inputs the embeddings were
+      // built from) instead of a photo full of wood grain + neighbors.
+      const corners = await detectCardCorners(uri).catch(() => null);
+      const cardUri = corners?.rectifiedUri ?? uri;
+      console.log(`[image-scan] rectifiedUri=${corners?.rectifiedUri ? 'yes' : 'no, using raw photo'}`);
+      const imageResult = await scanCardByImage(cardUri);
       if (imageResult && imageResult.match.score >= MATCH_ACCEPT) {
         console.log(`[image-scan] HIT ${imageResult.card.name} score=${imageResult.match.score.toFixed(3)}`);
         upsertCard(imageResult.card);
@@ -619,7 +624,10 @@ export default function ScanScreen() {
     try {
       // DEBUG MODE: image-embedding path ONLY — OCR fallback disabled.
       console.log('[image-scan] library pick → scanCardByImage');
-      const imageResult = await scanCardByImage(asset.uri);
+      const corners = await detectCardCorners(asset.uri).catch(() => null);
+      const cardUri = corners?.rectifiedUri ?? asset.uri;
+      console.log(`[image-scan] rectifiedUri=${corners?.rectifiedUri ? 'yes' : 'no, using raw'}`);
+      const imageResult = await scanCardByImage(cardUri);
       if (imageResult && imageResult.match.score >= MATCH_ACCEPT) {
         console.log(`[image-scan] HIT ${imageResult.card.name} score=${imageResult.match.score.toFixed(3)}`);
         upsertCard(imageResult.card);

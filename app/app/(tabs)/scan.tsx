@@ -15,7 +15,7 @@ import { useSharedValue, useRunOnJS } from 'react-native-worklets-core';
 import * as ImagePicker from 'expo-image-picker';
 import { useRef, useState, useCallback, useEffect } from 'react';
 import { useRouter } from 'expo-router';
-import { scanCard, scanCardByImage, MATCH_ACCEPT } from '../../src/scanner/ocr';
+import { scanCardByImage, MATCH_ACCEPT } from '../../src/scanner/ocr';
 import { upsertCard } from '../../src/db/cards';
 import { clearSessionCardCache } from '../../src/api/cards';
 import { useStore } from '../../src/store/useStore';
@@ -489,36 +489,34 @@ export default function ScanScreen() {
       setPhase({ status: 'scanning' });
       setOcrText(null);
       setBlText(null);
-      const photo = await cameraRef.current.takePhoto({ qualityPrioritization: 'speed' });
-      const uri = `file://${photo.path}`;
       setParsedInfo(null);
       setQueryInfo(null);
-      const result = await scanCard(uri, (p) => {
-        if (p.step === 'corners_detected') {
-          setDetection({ corners: p.corners, imageW: p.imageW, imageH: p.imageH });
-          setActiveRegion('bl');
-        } else if (p.step === 'bl_ocr_done') {
-          setBlText(p.blText);
-        } else if (p.step === 'bl_parsed') {
-          setParsedInfo(p.parsed);
-          if (!p.parsed) setActiveRegion('name');
-        } else if (p.step === 'fetching') {
-          setQueryInfo(`Scryfall: ${p.query}`);
-          setPhase({ status: 'fetching' });
-        } else if (p.step === 'name_ocr_done') {
-          setOcrText(p.nameText);
-        }
-      }, { width: photo.width, height: photo.height });
-      upsertCard(result.card);
-      addRecentScan(result.card);
-      setLastScannedId(result.card.scryfall_id);
-      setScanStrategy(result.strategy);
-      setOcrText(result.ocrText);
-      setSuccessCard(result.card.name);
+      const photo = await cameraRef.current.takePhoto({ qualityPrioritization: 'speed' });
+      const uri = `file://${photo.path}`;
+
+      // DEBUG MODE: image-embedding path ONLY — OCR fallback disabled.
+      console.log('[image-scan] taking photo → scanCardByImage');
+      const imageResult = await scanCardByImage(uri);
+      if (imageResult && imageResult.match.score >= MATCH_ACCEPT) {
+        console.log(`[image-scan] HIT ${imageResult.card.name} score=${imageResult.match.score.toFixed(3)}`);
+        upsertCard(imageResult.card);
+        addRecentScan(imageResult.card);
+        setLastScannedId(imageResult.card.scryfall_id);
+        setScanStrategy(null);
+        setSuccessCard(imageResult.card.name);
+        setActiveRegion(null);
+        setPhase({ status: 'idle' });
+        await new Promise<void>(r => setTimeout(r, 1500));
+        setSuccessCard(null);
+        return;
+      }
+
+      const reason = imageResult
+        ? `below MATCH_ACCEPT (score=${imageResult.match.score.toFixed(3)} < ${MATCH_ACCEPT})`
+        : 'null (encoder or embeddings not ready, or score < MATCH_MIN)';
+      console.log(`[image-scan] MISS ${reason} — OCR fallback disabled, aborting`);
       setActiveRegion(null);
-      setPhase({ status: 'idle' });
-      await new Promise<void>(resolve => setTimeout(resolve, 1500));
-      setSuccessCard(null);
+      setPhase({ status: 'error', message: `No match (${reason})` });
     } catch (e) {
       const msg = e instanceof Error ? e.message : 'Unknown error';
       console.warn('[scan]', msg);
@@ -618,30 +616,26 @@ export default function ScanScreen() {
     setParsedInfo(null);
     setQueryInfo(null);
     try {
-      const result = await scanCard(asset.uri, (p) => {
-        if (p.step === 'corners_detected') {
-          setDetection({ corners: p.corners, imageW: p.imageW, imageH: p.imageH });
-          setActiveRegion('bl');
-        } else if (p.step === 'bl_ocr_done') {
-          setBlText(p.blText);
-        } else if (p.step === 'bl_parsed') {
-          setParsedInfo(p.parsed);
-          if (!p.parsed) setActiveRegion('name');
-        } else if (p.step === 'fetching') {
-          setQueryInfo(`Scryfall: ${p.query}`);
-          setPhase({ status: 'fetching' });
-        } else if (p.step === 'name_ocr_done') {
-          setOcrText(p.nameText);
-        }
-      });
-      upsertCard(result.card);
-      addRecentScan(result.card);
-      setLastScannedId(result.card.scryfall_id);
-      setScanStrategy(result.strategy);
-      setOcrText(result.ocrText);
-      setSuccessCard(result.card.name);
+      // DEBUG MODE: image-embedding path ONLY — OCR fallback disabled.
+      console.log('[image-scan] library pick → scanCardByImage');
+      const imageResult = await scanCardByImage(asset.uri);
+      if (imageResult && imageResult.match.score >= MATCH_ACCEPT) {
+        console.log(`[image-scan] HIT ${imageResult.card.name} score=${imageResult.match.score.toFixed(3)}`);
+        upsertCard(imageResult.card);
+        addRecentScan(imageResult.card);
+        setLastScannedId(imageResult.card.scryfall_id);
+        setScanStrategy(null);
+        setSuccessCard(imageResult.card.name);
+        setActiveRegion(null);
+        setPhase({ status: 'idle' });
+        return;
+      }
+      const reason = imageResult
+        ? `below MATCH_ACCEPT (score=${imageResult.match.score.toFixed(3)} < ${MATCH_ACCEPT})`
+        : 'null (encoder or embeddings not ready, or score < MATCH_MIN)';
+      console.log(`[image-scan] MISS ${reason} — OCR fallback disabled`);
       setActiveRegion(null);
-      setPhase({ status: 'idle' });
+      setPhase({ status: 'error', message: `No match (${reason})` });
     } catch (e) {
       const msg = e instanceof Error ? e.message : 'Unknown error';
       console.warn('[scan] library:', msg);

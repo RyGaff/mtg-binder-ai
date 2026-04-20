@@ -9,3 +9,7 @@ __pycache__
 missing_art
 docs
 .worktrees
+.DS_Store
+.superpowers/
+embeddings.bin
+local_models/

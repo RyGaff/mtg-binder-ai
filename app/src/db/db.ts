@@ -59,6 +59,25 @@ function initSchema(db: SQLite.SQLiteDatabase): void {
       added_at    INTEGER NOT NULL
     );
 
+    -- Dedupe any pre-existing (scryfall_id, foil, condition) dupes by summing qty into the oldest row.
+    UPDATE collection_entries AS ce
+       SET quantity = (
+         SELECT SUM(quantity) FROM collection_entries
+          WHERE scryfall_id = ce.scryfall_id AND foil = ce.foil AND condition = ce.condition
+       )
+     WHERE id = (
+       SELECT MIN(id) FROM collection_entries
+        WHERE scryfall_id = ce.scryfall_id AND foil = ce.foil AND condition = ce.condition
+     );
+    DELETE FROM collection_entries
+     WHERE id NOT IN (
+       SELECT MIN(id) FROM collection_entries
+        GROUP BY scryfall_id, foil, condition
+     );
+
+    CREATE UNIQUE INDEX IF NOT EXISTS collection_entries_unique
+      ON collection_entries (scryfall_id, foil, condition);
+
     CREATE TABLE IF NOT EXISTS decks (
       id          INTEGER PRIMARY KEY AUTOINCREMENT,
       name        TEXT NOT NULL,

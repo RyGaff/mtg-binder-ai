@@ -56,7 +56,7 @@ export function addCardToDeck(args: AddCardToDeckArgs): void {
   db.runSync(
     `INSERT INTO deck_cards (deck_id, scryfall_id, quantity, board)
      VALUES (?, ?, ?, ?)
-     ON CONFLICT(deck_id, scryfall_id, board) DO UPDATE SET quantity = excluded.quantity`,
+     ON CONFLICT(deck_id, scryfall_id, board) DO UPDATE SET quantity = quantity + excluded.quantity`,
     [args.deck_id, args.scryfall_id, args.quantity, args.board]
   );
 }

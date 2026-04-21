@@ -1,5 +1,5 @@
 import { useQuery } from '@tanstack/react-query';
-import { fetchCardById, searchScryfall, fetchPrintings } from './scryfall';
+import { fetchCardById, fetchCardByName, searchScryfall, fetchPrintings } from './scryfall';
 import type { PrintingSummary } from './scryfall';
 import { getCardById, upsertCard, isCardStale, searchCardsLocal } from '../db/cards';
 import type { CachedCard } from '../db/cards';
@@ -41,6 +41,25 @@ export function useScryfallSearch(query: string) {
     },
     enabled: query.length > 1,
     staleTime: 5 * 60 * 1000,
+  });
+}
+
+/** Look up a card by fuzzy name, then search Scryfall for oracle-similar cards. */
+export function useSynergySearch(cardName: string) {
+  return useQuery({
+    queryKey: ['synergy', cardName.trim().toLowerCase()],
+    queryFn: async () => {
+      const seed = await fetchCardByName(cardName);
+      upsertCard(seed);
+      const q = buildSimilarQuery(seed);
+      if (!q.trim()) return [];
+      const results = await searchScryfall(q);
+      results.forEach(upsertCard);
+      return results.filter((c) => c.scryfall_id !== seed.scryfall_id);
+    },
+    enabled: cardName.trim().length > 1,
+    staleTime: 5 * 60 * 1000,
+    retry: false,
   });
 }
 

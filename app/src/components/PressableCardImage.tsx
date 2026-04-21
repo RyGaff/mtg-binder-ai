@@ -22,7 +22,6 @@ export function PressableCardImage({ uri, style, onPress, resizeMode = 'cover' }
       <Pressable
         onPress={onPress}
         onLongPress={() => setZoomed(true)}
-        onPressOut={() => setZoomed(false)}
       >
         <Image source={{ uri }} style={style} resizeMode={resizeMode} />
       </Pressable>

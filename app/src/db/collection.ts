@@ -23,7 +23,9 @@ export function addToCollection(args: AddToCollectionArgs): void {
   const db = getDb();
   db.runSync(
     `INSERT INTO collection_entries (scryfall_id, quantity, foil, condition, added_at)
-     VALUES (?, ?, ?, ?, ?)`,
+     VALUES (?, ?, ?, ?, ?)
+     ON CONFLICT(scryfall_id, foil, condition)
+     DO UPDATE SET quantity = quantity + excluded.quantity`,
     [args.scryfall_id, args.quantity, args.foil ? 1 : 0, args.condition, Date.now()]
   );
 }

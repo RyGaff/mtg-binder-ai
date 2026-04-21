@@ -9,7 +9,7 @@ import {
 } from 'react-native';
 import { useState } from 'react';
 import { CardRow } from '../../src/components/CardRow';
-import { useScryfallSearch } from '../../src/api/hooks';
+import { useScryfallSearch, useSynergySearch } from '../../src/api/hooks';
 import { useTheme } from '../../src/theme/useTheme';
 
 type Mode = 'search' | 'synergy';
@@ -21,7 +21,7 @@ export default function SearchScreen() {
   const [mode, setMode] = useState<Mode>('search');
 
   const searchResults = useScryfallSearch(mode === 'search' ? query : '');
-  const synergyResults = useScryfallSearch('');
+  const synergyResults = useSynergySearch(mode === 'synergy' ? synergyCard : '');
 
   const active = mode === 'search' ? searchResults : synergyResults;
   const results = active.data ?? [];

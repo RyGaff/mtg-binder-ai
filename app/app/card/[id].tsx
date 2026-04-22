@@ -13,6 +13,7 @@ import { useQueryClient } from '@tanstack/react-query';
 import { useCard } from '../../src/api/hooks';
 import { ConditionPicker, type Condition } from '../../src/components/ConditionPicker';
 import { FindSimilar } from '../../src/components/FindSimilar';
+import { Synergy } from '../../src/components/Synergy';
 import { AdditionalPrints } from '../../src/components/AdditionalPrints';
 import { PressableCardImage } from '../../src/components/PressableCardImage';
 import { addToCollection } from '../../src/db/collection';
@@ -112,6 +113,7 @@ export default function CardDetailModal() {
       </View>
 
       <FindSimilar card={card} />
+      <Synergy card={card} />
       <AdditionalPrints card={card} />
     </ScrollView>
   );

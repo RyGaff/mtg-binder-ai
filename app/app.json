@@ -23,14 +23,18 @@
       },
       "permissions": [
         "android.permission.CAMERA",
+        "android.permission.RECORD_AUDIO",
+        "android.permission.CAMERA",
         "android.permission.RECORD_AUDIO"
-      ]
+      ],
+      "package": "com.anonymous.mtgbinderai"
     },
     "ios": {
       "supportsTablet": true,
       "bundleIdentifier": "com.anonymous.mtg-binder-ai",
       "infoPlist": {
-        "ITSAppUsesNonExemptEncryption": false
+        "ITSAppUsesNonExemptEncryption": false,
+        "NSCameraUsageDescription": "Allow MTG Binder to access your camera to scan cards."
       }
     },
     "extra": {

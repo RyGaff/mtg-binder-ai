@@ -2,7 +2,6 @@ import {
   View,
   Text,
   TouchableOpacity,
-  Linking,
   StyleSheet,
 } from 'react-native';
 import { useRouter } from 'expo-router';
@@ -18,7 +17,7 @@ const BUILT_IN_THEMES: { name: ThemeName; label: string }[] = [
   { name: 'amoled', label: 'AMOLED' },
 ];
 
-const GITHUB_ISSUES_URL = 'https://github.com/your-repo/issues';
+const FEEDBACK_EMAIL = 'lotusfieldmtg@gmail.com';
 
 export default function ProfileScreen() {
   const router = useRouter();
@@ -162,13 +161,17 @@ export default function ProfileScreen() {
       {/* Feedback */}
       <View style={styles.section}>
         <Text style={[styles.sectionLabel, { color: t.textSecondary }]}>Feedback</Text>
-        <TouchableOpacity
-          style={[styles.feedbackRow, { backgroundColor: t.surface }]}
-          onPress={() => Linking.openURL(GITHUB_ISSUES_URL)}
-        >
-          <Text style={[styles.feedbackText, { color: t.text }]}>Report an issue on GitHub</Text>
-          <Text style={[styles.feedbackArrow, { color: t.textSecondary }]}>›</Text>
-        </TouchableOpacity>
+        <View style={[styles.feedbackRow, { backgroundColor: t.surface }]}>
+          <Text selectable style={[styles.feedbackText, { color: t.text }]}>
+            Send feedback to{' '}
+            <Text
+              selectable
+              style={{ color: t.accent, fontWeight: '600' }}
+            >
+              {FEEDBACK_EMAIL}
+            </Text>
+          </Text>
+        </View>
       </View>
     </View>
   );

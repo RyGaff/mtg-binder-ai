@@ -61,8 +61,27 @@ export async function fetchCardBySetNumber(setCode: string, collectorNumber: str
 }
 
 export async function fetchCardByName(name: string): Promise<CachedCard> {
-  const card = await get<ScryfallCard>(`${BASE}/cards/named?fuzzy=${encodeURIComponent(name)}`);
-  return normalize(card);
+  const attempts: (() => Promise<ScryfallCard>)[] = [
+    () => get<ScryfallCard>(`${BASE}/cards/named?exact=${encodeURIComponent(name)}`),
+    () => get<ScryfallCard>(`${BASE}/cards/named?fuzzy=${encodeURIComponent(name)}`),
+  ];
+  const frontFace = name.split(/\s*\/\/\s*/)[0];
+  if (frontFace && frontFace !== name) {
+    attempts.push(() =>
+      get<ScryfallCard>(`${BASE}/cards/named?fuzzy=${encodeURIComponent(frontFace)}`)
+    );
+  }
+
+  let lastErr: unknown;
+  for (const run of attempts) {
+    try {
+      const card = await run();
+      return normalize(card);
+    } catch (err) {
+      lastErr = err;
+    }
+  }
+  throw lastErr ?? new Error(`Could not resolve card: ${name}`);
 }
 
 export type SearchResult = { data: ScryfallCard[]; has_more: boolean; next_page?: string };

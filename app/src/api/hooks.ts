@@ -1,11 +1,12 @@
 import { useQuery } from '@tanstack/react-query';
-import { fetchCardById, fetchCardByName, searchScryfall, fetchPrintings } from './scryfall';
+import { fetchCardById, searchScryfall, fetchPrintings } from './scryfall';
 import type { PrintingSummary } from './scryfall';
 import { getCardById, upsertCard, isCardStale, searchCardsLocal } from '../db/cards';
 import type { CachedCard } from '../db/cards';
 import { getEmbeddingMap } from '../embeddings/parser';
 import { similaritySearch } from '../embeddings/similarity';
 import { useStore } from '../store/useStore';
+import { fetchEdhrecSynergies, type SynergyResult } from './edhrec';
 
 /** Returns a card, using SQLite cache and falling back to Scryfall. */
 export function useCard(scryfallId: string) {
@@ -44,21 +45,16 @@ export function useScryfallSearch(query: string) {
   });
 }
 
-/** Look up a card by fuzzy name, then search Scryfall for oracle-similar cards. */
-export function useSynergySearch(cardName: string) {
-  return useQuery({
-    queryKey: ['synergy', cardName.trim().toLowerCase()],
-    queryFn: async () => {
-      const seed = await fetchCardByName(cardName);
-      upsertCard(seed);
-      const q = buildSimilarQuery(seed);
-      if (!q.trim()) return [];
-      const results = await searchScryfall(q);
-      results.forEach(upsertCard);
-      return results.filter((c) => c.scryfall_id !== seed.scryfall_id);
-    },
-    enabled: cardName.trim().length > 1,
-    staleTime: 5 * 60 * 1000,
+/** Pull synergy partners from EDHREC (co-occurrence data across public deck lists). */
+export function useSynergyFromCard(seed: CachedCard | null) {
+  return useQuery<SynergyResult>({
+    queryKey: ['synergy', seed?.scryfall_id ?? ''],
+    queryFn: () =>
+      seed
+        ? fetchEdhrecSynergies(seed)
+        : Promise.resolve({ metric: 'synergy' as const, entries: [] }),
+    enabled: !!seed,
+    staleTime: 24 * 60 * 60 * 1000,
     retry: false,
   });
 }

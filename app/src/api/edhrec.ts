@@ -1,0 +1,143 @@
+import type { CachedCard } from '../db/cards';
+
+const BASE = 'https://json.edhrec.com/pages';
+
+export type SynergyMetric = 'synergy' | 'inclusion';
+
+export type SynergyEntry = {
+  name: string;
+  score: number;
+  image_uri: string;
+  edhrecUrl: string;
+  scryfall_id?: string;
+};
+
+export type SynergyResult = {
+  metric: SynergyMetric;
+  entries: SynergyEntry[];
+};
+
+type EdhrecImageField =
+  | string
+  | { normal?: string; small?: string; large?: string; png?: string };
+
+type EdhrecCardView = {
+  id?: string;
+  name: string;
+  sanitized?: string;
+  url?: string;
+  synergy?: number;
+  num_decks?: number;
+  potential_decks?: number;
+  image_uris?: EdhrecImageField[];
+  images?: EdhrecImageField[];
+};
+
+function pickImageUri(cv: EdhrecCardView): string {
+  const candidates: EdhrecImageField[] = [
+    ...(cv.image_uris ?? []),
+    ...(cv.images ?? []),
+  ];
+  for (const c of candidates) {
+    if (typeof c === 'string' && c) return c;
+    if (c && typeof c === 'object') {
+      const uri = c.normal || c.large || c.png || c.small;
+      if (uri) return uri;
+    }
+  }
+  return '';
+}
+
+function scryfallImageByName(name: string): string {
+  return `https://api.scryfall.com/cards/named?fuzzy=${encodeURIComponent(name)}&format=image&version=normal`;
+}
+
+function scryfallImageById(id: string): string {
+  return `https://api.scryfall.com/cards/${id}?format=image&version=normal`;
+}
+
+type EdhrecPage = {
+  container?: {
+    json_dict?: {
+      cardlists?: Array<{ cardviews?: EdhrecCardView[] }>;
+    };
+  };
+};
+
+export function slugify(name: string): string {
+  return name
+    .toLowerCase()
+    .replace(/\s*\/\/\s*/g, '-')
+    .replace(/[,'’"()]/g, '')
+    .replace(/[^a-z0-9]+/g, '-')
+    .replace(/^-+|-+$/g, '');
+}
+
+/** Legendary creatures + planeswalkers with "can be your commander". Heuristic. */
+export function isCommanderEligible(card: CachedCard): boolean {
+  const tl = card.type_line.toLowerCase();
+  if (tl.includes('legendary') && tl.includes('creature')) return true;
+  return /can be your commander/i.test(card.oracle_text);
+}
+
+async function fetchJson(url: string): Promise<EdhrecPage | null> {
+  try {
+    const res = await fetch(url);
+    if (!res.ok) return null;
+    return (await res.json()) as EdhrecPage;
+  } catch {
+    return null;
+  }
+}
+
+function scoreFor(cv: EdhrecCardView, metric: SynergyMetric): number | null {
+  if (metric === 'synergy') {
+    return typeof cv.synergy === 'number' ? Math.round(cv.synergy * 100) : null;
+  }
+  if (typeof cv.num_decks === 'number' && typeof cv.potential_decks === 'number' && cv.potential_decks > 0) {
+    return Math.round((cv.num_decks / cv.potential_decks) * 100);
+  }
+  return null;
+}
+
+function extractEntries(data: EdhrecPage | null, metric: SynergyMetric): SynergyEntry[] {
+  if (!data) return [];
+  const cardlists = data.container?.json_dict?.cardlists ?? [];
+  const out: SynergyEntry[] = [];
+  const seen = new Set<string>();
+  for (const list of cardlists) {
+    for (const cv of list.cardviews ?? []) {
+      if (!cv.name || seen.has(cv.name)) continue;
+      const score = scoreFor(cv, metric);
+      if (score === null) continue;
+      seen.add(cv.name);
+      const image_uri =
+        pickImageUri(cv) ||
+        (cv.id ? scryfallImageById(cv.id) : scryfallImageByName(cv.name));
+      out.push({
+        name: cv.name,
+        score,
+        image_uri,
+        edhrecUrl: cv.url ? `https://edhrec.com${cv.url}` : '',
+        scryfall_id: cv.id,
+      });
+    }
+  }
+  return out;
+}
+
+export async function fetchEdhrecSynergies(card: CachedCard): Promise<SynergyResult> {
+  const slug = slugify(card.name);
+  const commander = isCommanderEligible(card);
+  const metric: SynergyMetric = commander ? 'synergy' : 'inclusion';
+  const url = commander
+    ? `${BASE}/commanders/${slug}.json`
+    : `${BASE}/cards/${slug}.json`;
+
+  const data = await fetchJson(url);
+  const entries = extractEntries(data, metric)
+    .sort((a, b) => b.score - a.score)
+    .slice(0, 30);
+
+  return { metric, entries };
+}

@@ -66,12 +66,18 @@ class CardDetectorModule : Module() {
             val path = if (uri.startsWith("file://")) uri.removePrefix("file://") else uri
             val raw = detectCornersNative(path)
                 ?: return@AsyncFunction mapOf<String, Any>("_error" to "detect_failed")
-            if (raw.size != 9) {
+            if (raw.size != 10) {
                 return@AsyncFunction mapOf<String, Any>("_error" to "detect_bad_shape")
             }
 
             val rectPath = "$path.rect.jpg"
             val rectFile = File(rectPath)
+            // Matches CardSource enum in card_detector.h (0/1/2).
+            val source = when (raw[9].toInt()) {
+                1    -> "lineinterp"
+                2    -> "otsu"
+                else -> "primary"
+            }
 
             mapOf(
                 "topLeftX"     to raw[0], "topLeftY"     to raw[1],
@@ -79,6 +85,7 @@ class CardDetectorModule : Module() {
                 "bottomRightX" to raw[4], "bottomRightY" to raw[5],
                 "bottomLeftX"  to raw[6], "bottomLeftY"  to raw[7],
                 "confidence"   to raw[8],
+                "source"       to source,
                 "rectifiedUri" to if (rectFile.exists()) "file://$rectPath" else null,
             )
         }

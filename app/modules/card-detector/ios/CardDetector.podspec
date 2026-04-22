@@ -16,7 +16,7 @@ Pod::Spec.new do |s|
   s.weak_frameworks = 'CoreML'
   s.dependency 'ExpoModulesCore'
   s.dependency 'VisionCamera'
-  s.dependency 'OpenCV2', '~> 4.3.0'
+  s.dependency 'OpenCV-Dynamic-Framework', '~> 4.10.0'
   s.pod_target_xcconfig = {
     'CLANG_CXX_LANGUAGE_STANDARD' => 'c++17',
     'OTHER_CPLUSPLUSFLAGS' => '-fexceptions -frtti',

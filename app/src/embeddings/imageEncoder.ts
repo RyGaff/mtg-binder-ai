@@ -14,17 +14,29 @@ export async function isImageSearchReady(): Promise<boolean> {
 }
 
 /**
- * Run the native encoder. Returns null when:
+ * Run the native encoder on a rectified card crop. Returns null when:
  *   - The encoder asset isn't bundled in this build
  *   - The image can't be decoded
  *   - The native call errors
  *   - The returned vector isn't the expected length (256)
  */
-export async function encodeCardImage(uri: string): Promise<Float32Array | null> {
+export async function encodeCardImage(rectifiedUri: string): Promise<Float32Array | null> {
   try {
-    const vec = await encodeImage(uri);
+    const vec = await encodeImage(rectifiedUri);
     if (vec && vec.length === 256) {
       readinessCached = true;
+      if (__DEV__) {
+        let sumSq = 0;
+        let nanCount = 0;
+        for (let i = 0; i < vec.length; i++) {
+          const v = vec[i];
+          if (Number.isNaN(v)) nanCount++;
+          sumSq += v * v;
+        }
+        const norm = Math.sqrt(sumSq);
+        const head = Array.from(vec.slice(0, 8)).map((n) => n.toFixed(4));
+        console.log(`[enc] norm=${norm.toFixed(4)} nan=${nanCount} head=[${head.join(',')}]`);
+      }
       return vec;
     }
     return null;

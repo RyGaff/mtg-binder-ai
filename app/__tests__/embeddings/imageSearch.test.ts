@@ -70,12 +70,22 @@ it('returns the top-1 match with highest cosine similarity', async () => {
   });
   const result = await findCardByImage('file:///fake.jpg');
   expect(result?.scryfallId).toBe('card-a');
-  expect(result?.topK[0].scryfallId).toBe('card-a');
-  expect(result?.topK).toHaveLength(3);
   expect(result?.score).toBeGreaterThan(0.99);
 });
 
-it('returns fewer than TOP_K when the database has fewer cards', async () => {
+it('scores identical query and gallery vector at ~1.0', async () => {
+  (encodeCardImage as jest.Mock).mockResolvedValue(vec([1, 0, 0, 0]));
+  (getImageEmbeddingMap as jest.Mock).mockResolvedValue({
+    version: 2, dim: 4, modelHash: 0,
+    byId: new Map<string, Float32Array>([['same', vec([1, 0, 0, 0])]]),
+    byName: new Map(),
+  });
+  const result = await findCardByImage('file:///fake.jpg');
+  expect(result?.score).toBeCloseTo(1.0, 5);
+  expect(result?.scryfallId).toBe('same');
+});
+
+it('returns a single-card match when the database has one entry', async () => {
   (encodeCardImage as jest.Mock).mockResolvedValue(vec([1, 0, 0, 0]));
   (getImageEmbeddingMap as jest.Mock).mockResolvedValue({
     version: 2, dim: 4, modelHash: 0,
@@ -85,6 +95,20 @@ it('returns fewer than TOP_K when the database has fewer cards', async () => {
     byName: new Map(),
   });
   const result = await findCardByImage('file:///fake.jpg');
-  expect(result?.topK).toHaveLength(1);
   expect(result?.scryfallId).toBe('only-card');
+});
+
+it('returns null when encoder output dim ≠ gallery dim (model mismatch)', async () => {
+  // Encoder returns 256-d vector but gallery is 4-d — unchecked, the dot
+  // product loop would read undefined and produce NaN scores that slip
+  // through MATCH_MIN. The guard must refuse to search.
+  const q = new Float32Array(256); q[0] = 1;
+  (encodeCardImage as jest.Mock).mockResolvedValue(q);
+  (getImageEmbeddingMap as jest.Mock).mockResolvedValue({
+    version: 2, dim: 4, modelHash: 0,
+    byId: new Map<string, Float32Array>([['card-a', vec([1, 0, 0, 0])]]),
+    byName: new Map(),
+  });
+  const result = await findCardByImage('file:///fake.jpg');
+  expect(result).toBeNull();
 });

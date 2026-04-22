@@ -15,7 +15,7 @@ import { useSharedValue, useRunOnJS } from 'react-native-worklets-core';
 import * as ImagePicker from 'expo-image-picker';
 import { useRef, useState, useCallback, useEffect } from 'react';
 import { useRouter } from 'expo-router';
-import { scanCard, scanCardByImage, MATCH_ACCEPT } from '../../src/scanner/ocr';
+import { scanCard, scanCardByImage, MATCH_ACCEPT, EMBEDDING_SCAN_ENABLED } from '../../src/scanner/ocr';
 import { upsertCard } from '../../src/db/cards';
 import { clearSessionCardCache } from '../../src/api/cards';
 import { useStore } from '../../src/store/useStore';
@@ -289,6 +289,7 @@ function emaCorners(prev: CardCorners, next: CardCorners): CardCorners {
     bottomRight: { x: lerp(prev.bottomRight.x, next.bottomRight.x), y: lerp(prev.bottomRight.y, next.bottomRight.y) },
     bottomLeft:  { x: lerp(prev.bottomLeft.x,  next.bottomLeft.x),  y: lerp(prev.bottomLeft.y,  next.bottomLeft.y) },
     confidence:  next.confidence,
+    source:      next.source,
     rectifiedUri: next.rectifiedUri,
   };
 }
@@ -481,23 +482,25 @@ export default function ScanScreen() {
       // vision-camera returns `path` with or without `file://` depending on platform/version.
       const uri = photo.path.startsWith('file://') ? photo.path : `file://${photo.path}`;
 
-      // Try image-embedding identification first. The encoder is trained on
-      // scryfall-style full-card crops, so rectify first when we can; fall
-      // back to the raw photo when detection fails.
+      // Run card detection first — we need the corners for the OCR
+      // overlay anyway. Embedding-based identification is gated by
+      // EMBEDDING_SCAN_ENABLED; when off, skip straight to OCR and let
+      // it drive the result.
       const corners = await detectCardCorners(uri).catch(() => null);
-      const cardUri = corners?.rectifiedUri ?? uri;
-      const imageResult = await scanCardByImage(cardUri);
-      if (imageResult && imageResult.match.score >= MATCH_ACCEPT) {
-        upsertCard(imageResult.card);
-        addRecentScan(imageResult.card);
-        setLastScannedId(imageResult.card.scryfall_id);
-        setScanStrategy(null);
-        setSuccessCard(imageResult.card.name);
-        setActiveRegion(null);
-        setPhase({ status: 'idle' });
-        await new Promise<void>(r => setTimeout(r, 1500));
-        setSuccessCard(null);
-        return;
+      if (EMBEDDING_SCAN_ENABLED && corners?.rectifiedUri) {
+        const imageResult = await scanCardByImage(corners.rectifiedUri);
+        if (imageResult && imageResult.match.score >= MATCH_ACCEPT) {
+          upsertCard(imageResult.card);
+          addRecentScan(imageResult.card);
+          setLastScannedId(imageResult.card.scryfall_id);
+          setScanStrategy(null);
+          setSuccessCard(imageResult.card.name);
+          setActiveRegion(null);
+          setPhase({ status: 'idle' });
+          await new Promise<void>(r => setTimeout(r, 1500));
+          setSuccessCard(null);
+          return;
+        }
       }
 
       // Fall through to OCR (set-number → name). Reuse the corners we
@@ -607,17 +610,18 @@ export default function ScanScreen() {
     setQueryInfo(null);
     try {
       const corners = await detectCardCorners(asset.uri).catch(() => null);
-      const cardUri = corners?.rectifiedUri ?? asset.uri;
-      const imageResult = await scanCardByImage(cardUri);
-      if (imageResult && imageResult.match.score >= MATCH_ACCEPT) {
-        upsertCard(imageResult.card);
-        addRecentScan(imageResult.card);
-        setLastScannedId(imageResult.card.scryfall_id);
-        setScanStrategy(null);
-        setSuccessCard(imageResult.card.name);
-        setActiveRegion(null);
-        setPhase({ status: 'idle' });
-        return;
+      if (EMBEDDING_SCAN_ENABLED && corners?.rectifiedUri) {
+        const imageResult = await scanCardByImage(corners.rectifiedUri);
+        if (imageResult && imageResult.match.score >= MATCH_ACCEPT) {
+          upsertCard(imageResult.card);
+          addRecentScan(imageResult.card);
+          setLastScannedId(imageResult.card.scryfall_id);
+          setScanStrategy(null);
+          setSuccessCard(imageResult.card.name);
+          setActiveRegion(null);
+          setPhase({ status: 'idle' });
+          return;
+        }
       }
 
       // Fall through to OCR.

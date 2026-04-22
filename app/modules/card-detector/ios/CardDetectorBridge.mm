@@ -90,6 +90,15 @@ static cv::Mat grayMatFromSampleBuffer(CMSampleBufferRef sampleBuffer) {
 
 // ── Dict builder ─────────────────────────────────────────────────────────────
 
+static NSString *cardSourceString(int source) {
+    switch (source) {
+        case CARD_SOURCE_LINEINTERP: return @"lineinterp";
+        case CARD_SOURCE_OTSU:       return @"otsu";
+        case CARD_SOURCE_PRIMARY:
+        default:                     return @"primary";
+    }
+}
+
 static NSDictionary<NSString *, id> *cornersToDict(
     const CardCorners& c,
     NSString * _Nullable rectifiedUri
@@ -104,6 +113,7 @@ static NSDictionary<NSString *, id> *cornersToDict(
         @"bottomLeftX":  @(c.bottomLeftX),
         @"bottomLeftY":  @(c.bottomLeftY),
         @"confidence":   @(c.confidence),
+        @"source":       cardSourceString(c.source),
     } mutableCopy];
     if (rectifiedUri) d[@"rectifiedUri"] = rectifiedUri;
     return [d copy];
@@ -229,32 +239,20 @@ static NSDictionary<NSString *, id> *cornersToDict(
         return @{ @"_error": @"cvmat_convert_failed" };
     }
 
-    // Defensive: if EXIF orientation was absent/baked-in-place and the Mat
-    // is still landscape, rotate to portrait.
-    if (bgr.cols > bgr.rows) {
-        cv::Mat r;
-        cv::rotate(bgr, r, cv::ROTATE_90_CLOCKWISE);
-        bgr = r;
-    }
-
-    // Downscale very large photos (takePhoto can yield 4032×3024). Keeping the
-    // long edge ~1920 makes the 3% minArea threshold meaningful for a normal-sized
-    // card and runs ~10x faster.
-    double longEdge = std::max((double)bgr.cols, (double)bgr.rows);
-    cv::Mat bgrSmall;
-    if (longEdge > 1920.0) {
-        double scale = 1920.0 / longEdge;
-        cv::resize(bgr, bgrSmall, cv::Size(), scale, scale, cv::INTER_AREA);
-    } else {
-        bgrSmall = bgr;
-    }
+    // No pre-detection resize or rotate here. Both diverge from the
+    // mtg-scan-nn Python reference pipeline and from the Android path.
+    // Keeping iOS algorithmically identical means test parity works on
+    // real device captures. A 4032×3024 photo adds ~200 ms to the
+    // single takePhoto detection pass; the frame-processor preview
+    // path operates on already-small sample buffers, so live scanning
+    // is unaffected.
 
     NSString *rectPath = [path stringByAppendingString:@".rect.jpg"];
     std::string rectPathStr = rectPath.UTF8String;
 
     CardCorners corners;
     DetectionStats stats;
-    if (!detectCardCorners(bgrSmall, corners, &rectPathStr, &stats)) {
+    if (!detectCardCorners(bgr, corners, &rectPathStr, &stats)) {
         return @{
             @"_error": @"detect_failed",
             @"stats": @{

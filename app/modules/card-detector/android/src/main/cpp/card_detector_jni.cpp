@@ -17,16 +17,17 @@ Java_expo_modules_carddetector_CardDetectorModule_detectCornersNative(
     CardCorners corners;
     if (!detectCardCorners(image, corners, &rectPath)) return nullptr;
 
-    jfloatArray result = env->NewFloatArray(9);
+    jfloatArray result = env->NewFloatArray(10);
     if (!result) return nullptr;
-    float data[9] = {
+    float data[10] = {
         corners.topLeftX,     corners.topLeftY,
         corners.topRightX,    corners.topRightY,
         corners.bottomRightX, corners.bottomRightY,
         corners.bottomLeftX,  corners.bottomLeftY,
         corners.confidence,
+        (float)corners.source,
     };
-    env->SetFloatArrayRegion(result, 0, 9, data);
+    env->SetFloatArrayRegion(result, 0, 10, data);
     return result;
 }
 
@@ -43,15 +44,16 @@ Java_expo_modules_carddetector_CardDetectorFrameProcessorPlugin_detectCornersFro
     // No rectified image for frame processor path — OCR uses high-res photo
     if (!detectCardCorners(grayClone, corners, nullptr)) return nullptr;
 
-    jfloatArray result = env->NewFloatArray(9);
+    jfloatArray result = env->NewFloatArray(10);
     if (!result) return nullptr;
-    float data[9] = {
+    float data[10] = {
         corners.topLeftX,     corners.topLeftY,
         corners.topRightX,    corners.topRightY,
         corners.bottomRightX, corners.bottomRightY,
         corners.bottomLeftX,  corners.bottomLeftY,
         corners.confidence,
+        (float)corners.source,
     };
-    env->SetFloatArrayRegion(result, 0, 9, data);
+    env->SetFloatArrayRegion(result, 0, 10, data);
     return result;
 }

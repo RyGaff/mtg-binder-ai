@@ -7,12 +7,23 @@
 #define CARD_CONFIDENCE_MIN    0.35f
 #define CARD_CONFIDENCE_STABLE 0.65f
 
+// Which detection path produced this result. Callers use `source` to
+// pick per-source rectification expansion — line-pair quads are inset
+// from the card outer edge, Otsu quads include a small background
+// halo, primary quads fit the card exactly.
+enum CardSource {
+    CARD_SOURCE_PRIMARY    = 0,
+    CARD_SOURCE_LINEINTERP = 1,
+    CARD_SOURCE_OTSU       = 2,
+};
+
 struct CardCorners {
     float topLeftX,     topLeftY;
     float topRightX,    topRightY;
     float bottomRightX, bottomRightY;
     float bottomLeftX,  bottomLeftY;
     float confidence;
+    int   source;   // CardSource enum value
 };
 
 // Per-stage counters so we can see where the pipeline is rejecting quads.

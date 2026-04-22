@@ -4,12 +4,22 @@ import type { Frame, FrameProcessorPlugin } from 'react-native-vision-camera';
 
 export type Point = { x: number; y: number };
 
+/** Which detection path produced the corners.
+ *  - primary:    Canny + contour quad (standard scan path)
+ *  - lineinterp: Hough-cluster rectangle (rescue for occluded edges)
+ *  - otsu:       Otsu threshold segmentation (rescue for weak-gradient edges)
+ * Native already applies source-aware expansion before writing the
+ * rectified crop, so consumers normally don't need to branch on this —
+ * exposed for diagnostics and confidence-weighting. */
+export type CardSource = 'primary' | 'lineinterp' | 'otsu';
+
 export type CardCorners = {
   topLeft:      Point;
   topRight:     Point;
   bottomRight:  Point;
   bottomLeft:   Point;
   confidence:   number;        // 0.0–1.0; use CARD_CONFIDENCE_MIN/STABLE thresholds
+  source:       CardSource;
   rectifiedUri?: string;       // 400×560 perspective-corrected JPEG, file URI
 };
 
@@ -22,8 +32,14 @@ type RawCorners = {
   bottomRightX: number; bottomRightY: number;
   bottomLeftX:  number; bottomLeftY:  number;
   confidence:   number;
+  source?:      string;
   rectifiedUri?: string;
 };
+
+function toCardSource(raw?: string): CardSource {
+  'worklet';
+  return raw === 'lineinterp' || raw === 'otsu' ? raw : 'primary';
+}
 
 function parseRaw(raw: RawCorners): CardCorners {
   return {
@@ -32,6 +48,7 @@ function parseRaw(raw: RawCorners): CardCorners {
     bottomRight: { x: raw.bottomRightX, y: raw.bottomRightY },
     bottomLeft:  { x: raw.bottomLeftX,  y: raw.bottomLeftY  },
     confidence:  raw.confidence,
+    source:      toCardSource(raw.source),
     rectifiedUri: raw.rectifiedUri,
   };
 }
@@ -118,6 +135,7 @@ export function detectCardCornersInFrame(
       bottomRight: { x: result.bottomRightX as number, y: result.bottomRightY as number },
       bottomLeft:  { x: result.bottomLeftX  as number, y: result.bottomLeftY  as number },
       confidence:  result.confidence as number,
+      source:      toCardSource(result.source as string | undefined),
     },
     debug,
   };

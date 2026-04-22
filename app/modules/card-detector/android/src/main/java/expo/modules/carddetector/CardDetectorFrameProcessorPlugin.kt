@@ -28,7 +28,12 @@ class CardDetectorFrameProcessorPlugin(
 
         val raw = detectCornersFromGrayscaleNative(bytes, image.width, image.height)
             ?: return null
-        if (raw.size != 9) return null
+        if (raw.size != 10) return null
+        val source = when (raw[9].toInt()) {
+            1    -> "lineinterp"
+            2    -> "otsu"
+            else -> "primary"
+        }
 
         return mapOf(
             "topLeftX"     to raw[0].toDouble(), "topLeftY"     to raw[1].toDouble(),
@@ -36,6 +41,7 @@ class CardDetectorFrameProcessorPlugin(
             "bottomRightX" to raw[4].toDouble(), "bottomRightY" to raw[5].toDouble(),
             "bottomLeftX"  to raw[6].toDouble(), "bottomLeftY"  to raw[7].toDouble(),
             "confidence"   to raw[8].toDouble(),
+            "source"       to source,
             // Frame processor path does not produce a rectified image
         )
     }

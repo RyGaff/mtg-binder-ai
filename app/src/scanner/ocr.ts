@@ -223,6 +223,14 @@ export async function scanCard(
 
 import { findCardByImage, ImageMatch } from '../embeddings/imageSearch';
 
+/** Kill-switch for the image-embedding identification path. When
+ *  false, scan.tsx skips scanCardByImage and falls straight through to
+ *  OCR. Set false while encoder / gallery tuning is underway so OCR
+ *  alone drives scan outcomes. The detection pipeline (primary →
+ *  line-pair → Otsu) still runs — its rectified crop just goes
+ *  unused downstream. */
+export const EMBEDDING_SCAN_ENABLED = false;
+
 /** Threshold above which we auto-commit the top-1 match. */
 export const MATCH_ACCEPT = 0.75;
 /** Threshold below which we reject the match and fall back to OCR. */
@@ -235,16 +243,17 @@ export type ImageScanResult = {
 };
 
 /**
- * Try image-embedding identification. Returns null when:
+ * Try image-embedding identification. Caller MUST pass a rectified
+ * 400×560 card crop (from detectCardCorners().rectifiedUri) — the
+ * encoder was trained on full-card scans and produces garbage on raw
+ * photos with hand/table/background. Returns null when:
  *   - The encoder or embeddings are not ready (no artifacts bundled)
  *   - The top-1 match score is below MATCH_MIN (too uncertain)
  *
- * Above MATCH_ACCEPT, the caller should auto-commit. Between MATCH_MIN
- * and MATCH_ACCEPT, the match is returned so the UI can choose whether
- * to show a top-3 chooser.
+ * Above MATCH_ACCEPT, the caller should auto-commit.
  */
-export async function scanCardByImage(uri: string): Promise<ImageScanResult | null> {
-  const match = await findCardByImage(uri);
+export async function scanCardByImage(rectifiedUri: string): Promise<ImageScanResult | null> {
+  const match = await findCardByImage(rectifiedUri);
   if (!match) return null;
   if (match.score < MATCH_MIN) return null;
   const card = await resolveCardById(match.scryfallId);

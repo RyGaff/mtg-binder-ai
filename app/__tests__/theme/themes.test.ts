@@ -92,6 +92,9 @@ describe('CustomTheme type', () => {
       text: '#ffffff',
       textSecondary: '#888888',
       accent: '#4ecdc4',
+      foilAccent: '#b8a0e8',
+      danger: '#ff6b6b',
+      success: '#4ecdc4',
     };
     expect(custom.name).toBe('custom-0');
     expect(custom.label).toBe('My Theme');
@@ -119,6 +122,9 @@ describe('useStore customThemes', () => {
       text: '#ffffff',
       textSecondary: '#888888',
       accent: '#42a5f5',
+      foilAccent: '#b8a0e8',
+      danger: '#ff6b6b',
+      success: '#4ecdc4',
     };
     useStore.getState().setCustomTheme(1, custom);
     expect(useStore.getState().customThemes[1]).toEqual(custom);
@@ -132,6 +138,7 @@ describe('useStore customThemes', () => {
       label: 'Test',
       bg: '#111318', surface: '#1a1c23', surfaceAlt: '#252830',
       border: '#2a2d38', text: '#ffffff', textSecondary: '#888888', accent: '#4ecdc4',
+      foilAccent: '#b8a0e8', danger: '#ff6b6b', success: '#4ecdc4',
     };
     useStore.getState().setCustomTheme(0, custom);
     useStore.getState().deleteCustomTheme(0);
@@ -167,6 +174,9 @@ describe('useTheme', () => {
       text: '#ffffff',
       textSecondary: '#aaaaaa',
       accent: '#ab47bc',
+      foilAccent: '#b8a0e8',
+      danger: '#ff6b6b',
+      success: '#4ecdc4',
     };
     useStore.setState({ theme: 'custom-2', customThemes: [null, null, custom] });
     const { result } = renderHook(() => useTheme());

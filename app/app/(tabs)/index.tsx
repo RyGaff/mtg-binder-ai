@@ -37,6 +37,7 @@ import { fetchCardByName, fetchCardBySetNumber } from '../../src/api/scryfall';
 import { useKeyboardAppearance, useTheme } from '../../src/theme/useTheme';
 import { spacing, radius, font, MIN_TOUCH, HIT_SLOP_8 } from '../../src/theme/themes';
 import { Icon } from '../../src/components/icons/Icon';
+import { useDebouncedValue } from '../../src/hooks/useDebouncedValue';
 
 export default function BinderScreen() {
   const theme = useTheme();
@@ -47,6 +48,7 @@ export default function BinderScreen() {
   const setColorFilter = useStore((s) => s.setColorFilter);
 
   const [searchQuery, setSearchQuery] = useState('');
+  const debouncedSearchQuery = useDebouncedValue(searchQuery, 250);
   const [importProgress, setImportProgress] = useState<{
     current: number;
     total: number;
@@ -54,9 +56,9 @@ export default function BinderScreen() {
   } | null>(null);
 
   const { data: entries = [] } = useQuery({
-    queryKey: ['collection', colorFilter, searchQuery],
+    queryKey: ['collection', colorFilter, debouncedSearchQuery],
     queryFn: () => {
-      if (searchQuery.trim()) return searchCollection(searchQuery.trim());
+      if (debouncedSearchQuery.trim()) return searchCollection(debouncedSearchQuery.trim());
       return colorFilter === 'all' ? getCollection() : getCollectionByColor(colorFilter);
     },
   });

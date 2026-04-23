@@ -89,8 +89,27 @@ export function getCollectionByColor(colorCode: string): CollectionEntryWithCard
   ));
 }
 
+function buildFtsNameQuery(raw: string): string | null {
+  const cleaned = raw
+    .replace(/["*()^:]/g, ' ')
+    .replace(/[-+]/g, ' ')
+    .trim();
+  if (!cleaned) return null;
+  const tokens = cleaned.split(/\s+/).filter((t) => t.length > 0);
+  if (tokens.length === 0) return null;
+  return tokens.map((t) => `name : "${t}"*`).join(' AND ');
+}
+
 export function searchCollection(query: string): CollectionEntryWithCard[] {
   const db = getDb();
+  const trimmed = query.trim();
+  if (!trimmed) {
+    return getCollection();
+  }
+  const ftsQuery = buildFtsNameQuery(trimmed);
+  if (!ftsQuery) {
+    return getCollection();
+  }
   return normalizeFoil(db.getAllSync<CollectionEntryWithCard>(
     `SELECT ce.id, ce.scryfall_id, ce.quantity, ce.foil, ce.condition, ce.added_at,
             c.name, c.set_code, c.collector_number, c.mana_cost,
@@ -98,9 +117,10 @@ export function searchCollection(query: string): CollectionEntryWithCard[] {
             c.prices, c.keywords, c.cached_at
      FROM collection_entries ce
      JOIN cards c ON c.scryfall_id = ce.scryfall_id
-     WHERE c.name LIKE ?
+     JOIN cards_fts f ON f.rowid = c.rowid
+     WHERE cards_fts MATCH ?
      ORDER BY c.name ASC`,
-    [`%${query}%`]
+    [ftsQuery]
   ));
 }
 

@@ -10,7 +10,6 @@ import {
   Dimensions,
   Easing,
   Image,
-  InteractionManager,
   PanResponder,
   StyleSheet,
 } from 'react-native';
@@ -95,10 +94,12 @@ export default function CardDetailModal() {
   const navigatingRef = useRef(false);
   const skipInterceptRef = useRef(false);
   const isMountedRef = useRef(true);
+  const extrasReadyRef = useRef(false);
 
-  useEffect(() => {
-    const handle = InteractionManager.runAfterInteractions(() => setExtrasReady(true));
-    return () => handle.cancel();
+  const handleHeroReady = useCallback(() => {
+    if (extrasReadyRef.current) return;
+    extrasReadyRef.current = true;
+    setExtrasReady(true);
   }, []);
 
   useEffect(() => {
@@ -119,14 +120,7 @@ export default function CardDetailModal() {
   }, [card?.scryfall_id, card?.name, pushCardTrail]);
 
   useEffect(() => {
-    let inner = 0;
-    const outer = requestAnimationFrame(() => {
-      inner = requestAnimationFrame(() => trailScrollRef.current?.scrollToEnd({ animated: true }));
-    });
-    return () => {
-      cancelAnimationFrame(outer);
-      if (inner) cancelAnimationFrame(inner);
-    };
+    trailScrollRef.current?.scrollToEnd({ animated: false });
   }, [trail.length]);
 
   const handleClose = useCallback(() => {
@@ -202,6 +196,15 @@ export default function CardDetailModal() {
     return unsub;
   }, [navigation, goBackInTrail, clearCardTrail]);
 
+  const animateSwapRef = useRef(animateSwap);
+  useEffect(() => {
+    animateSwapRef.current = animateSwap;
+  }, [animateSwap]);
+  const handleCloseRef = useRef(handleClose);
+  useEffect(() => {
+    handleCloseRef.current = handleClose;
+  }, [handleClose]);
+
   const panResponder = useMemo(() => {
     const classify = (g: { dx: number; dy: number }): 'right' | 'down' | null => {
       const ax = Math.abs(g.dx);
@@ -225,11 +228,11 @@ export default function CardDetailModal() {
       if (dir === 'right' && (g.dx > width * COMMIT_DIST_RATIO || g.vx > COMMIT_VELOCITY)) {
         const current = useStore.getState().cardTrail;
         if (current.length > 1) {
-          animateSwap(current[current.length - 2].id, GESTURE_OUT_MS);
+          animateSwapRef.current(current[current.length - 2].id, GESTURE_OUT_MS);
           return;
         }
       } else if (dir === 'down' && (g.dy > height * COMMIT_DIST_RATIO || g.vy > COMMIT_VELOCITY)) {
-        timing(slideY, height, GESTURE_OUT_MS).start(() => handleClose());
+        timing(slideY, height, GESTURE_OUT_MS).start(() => handleCloseRef.current());
         return;
       }
       Animated.parallel([
@@ -245,7 +248,6 @@ export default function CardDetailModal() {
         if (dir) gestureDirRef.current = dir;
         return dir !== null;
       },
-      // Lock direction on grant — no mid-drag axis flipping.
       onPanResponderMove: (_e, g) => {
         const dir = gestureDirRef.current;
         if (dir === 'right' && g.dx > 0) slideX.setValue(g.dx);
@@ -264,7 +266,7 @@ export default function CardDetailModal() {
       onPanResponderTerminationRequest: () => false,
       onShouldBlockNativeResponder: () => true,
     });
-  }, [animateSwap, handleClose, slideX, slideY]);
+  }, [slideX, slideY]);
 
   if (!card) {
     return <LoadingOrError theme={theme} errStatus={errStatus} error={error} onExit={handleClose} />;
@@ -306,7 +308,7 @@ export default function CardDetailModal() {
             onJump={jumpToTrailCard}
             onClose={handleClose}
           />
-          <CardHero card={card} theme={theme} />
+          <CardHero card={card} theme={theme} onImageReady={handleHeroReady} />
           <CardActions
             theme={theme}
             condition={condition}
@@ -468,16 +470,16 @@ function TopBar({
   );
 }
 
-function CardHero({ card, theme, compact = false }: { card: Card; theme: Theme; compact?: boolean }) {
+function CardHero({ card, theme, compact = false, onImageReady }: { card: Card; theme: Theme; compact?: boolean; onImageReady?: () => void }) {
   const prices = parsePrices(card.prices);
   const { width: winW, height: winH } = Dimensions.get('window');
   const imgSize = heroImageSize(winW, winH);
   return (
     <View style={styles.row}>
       {card.image_uri ? (
-        <PressableCardImage uri={card.image_uri} style={[styles.image, imgSize]} resizeMode="contain" />
+        <PressableCardImage uri={card.image_uri} style={[styles.image, imgSize]} resizeMode="contain" onReady={onImageReady} />
       ) : (
-        <View style={[styles.image, imgSize, { backgroundColor: theme.surfaceAlt }]} />
+        <View style={[styles.image, imgSize, { backgroundColor: theme.surfaceAlt }]} onLayout={onImageReady} />
       )}
       <View style={styles.meta}>
         <Text

@@ -7,19 +7,17 @@ export const getVersionFile = () => new File(Paths.document, 'embeddings_version
 export const getImageEmbeddingsFile = () => new File(Paths.document, 'embeddings_image.bin');
 export const getImageVersionFile = () => new File(Paths.document, 'embeddings_image_version.txt');
 
-export type EmbeddingMap = Map<string, Float32Array>;
-
 export type EmbeddingIndex = {
   version:   1 | 2;
   dim:       number;
   modelHash: number;              // only meaningful for v2 image embeds
-  byId:      EmbeddingMap;         // scryfall_id → L2-normalized vector
-  byName:    Map<string, string>;  // empty for v2
+  size:      number;              // N — number of rows
+  ids:       string[];            // length N, parallel to vectors rows
+  vectors:   Float32Array;        // length N*dim, row-major, L2-normalized
+  idIndex:   Map<string, number>; // scryfall_id → row index
+  byName:    Map<string, string>; // empty for v2
 };
 
-// Magic bytes on disk spell "MTGE" in natural order: 0x4D 0x54 0x47 0x45.
-// Read as big-endian so the integer constant visually matches the ASCII.
-// Writers MUST lay down bytes as [0x4D, 0x54, 0x47, 0x45] regardless of host endianness.
 const MAGIC_MTGE = 0x4D544745;
 
 let cachedText: EmbeddingIndex | null = null;
@@ -27,13 +25,11 @@ let cachedImage: EmbeddingIndex | null = null;
 let pendingText: Promise<EmbeddingIndex> | null = null;
 let pendingImage: Promise<EmbeddingIndex> | null = null;
 
-/** Clear the in-memory cache — call after downloading a new file. */
 export function clearEmbeddingCache(): void {
   cachedText = null; pendingText = null;
   cachedImage = null; pendingImage = null;
 }
 
-/** Return the parsed text embedding index, loading from disk on first call. */
 export async function getEmbeddingMap(): Promise<EmbeddingIndex> {
   if (cachedText) return cachedText;
   if (pendingText) return pendingText;
@@ -42,7 +38,6 @@ export async function getEmbeddingMap(): Promise<EmbeddingIndex> {
   return pendingText;
 }
 
-/** Return the parsed image embedding index, loading from disk on first call. */
 export async function getImageEmbeddingMap(): Promise<EmbeddingIndex> {
   if (cachedImage) return cachedImage;
   if (pendingImage) return pendingImage;
@@ -72,8 +67,6 @@ export function parseEmbeddingBuffer(buffer: ArrayBuffer): EmbeddingIndex {
     throw new RangeError(`Embedding buffer too small: ${buffer.byteLength} bytes`);
   }
   const view = new DataView(buffer);
-  // Magic read big-endian so on-disk bytes [0x4D,0x54,0x47,0x45] spell "MTGE".
-  // All other multi-byte fields are little-endian.
   const first = view.getUint32(0, false);
 
   if (first === MAGIC_MTGE) {
@@ -94,24 +87,32 @@ function parseV2(buffer: ArrayBuffer, view: DataView): EmbeddingIndex {
   const dim       = view.getUint32(12, true);
   const modelHash = view.getUint32(16, true);
   const recordSize = 36 + dim * 4;
-  const byId: EmbeddingMap = new Map();
+
+  const ids: string[] = new Array(n);
+  const vectors = new Float32Array(n * dim);
+  const idIndex = new Map<string, number>();
 
   for (let i = 0; i < n; i++) {
     const base = 20 + i * recordSize;
     const idBytes = new Uint8Array(buffer, base, 36);
     const id = String.fromCharCode(...idBytes).replace(/\0/g, '');
     const raw = new Float32Array(buffer, base + 36, dim);
-    byId.set(id, normalize(raw));
+    normalizeInto(raw, vectors, i * dim);
+    ids[i] = id;
+    idIndex.set(id, i);
   }
 
-  return { version: 2, dim, modelHash, byId, byName: new Map() };
+  return { version: 2, dim, modelHash, size: n, ids, vectors, idIndex, byName: new Map() };
 }
 
 function parseV1(buffer: ArrayBuffer, view: DataView): EmbeddingIndex {
   const n   = view.getUint32(0, true);
   const dim = view.getUint32(4, true);
   const recordSize = 36 + 64 + dim * 4;
-  const byId: EmbeddingMap = new Map();
+
+  const ids: string[] = new Array(n);
+  const vectors = new Float32Array(n * dim);
+  const idIndex = new Map<string, number>();
   const byName: Map<string, string> = new Map();
 
   for (let i = 0; i < n; i++) {
@@ -121,14 +122,15 @@ function parseV1(buffer: ArrayBuffer, view: DataView): EmbeddingIndex {
     const nameBytes = new Uint8Array(buffer, base + 36, 64);
     const name = String.fromCharCode(...nameBytes).replace(/\0/g, '');
     const raw = new Float32Array(buffer, base + 100, dim);
-    byId.set(id, normalize(raw));
+    normalizeInto(raw, vectors, i * dim);
+    ids[i] = id;
+    idIndex.set(id, i);
     if (name) byName.set(name, id);
   }
 
-  return { version: 1, dim, modelHash: 0, byId, byName };
+  return { version: 1, dim, modelHash: 0, size: n, ids, vectors, idIndex, byName };
 }
 
-/** L2-normalize a Float32Array into a new Float32Array. Does not mutate input. */
 export function normalize(v: Float32Array): Float32Array {
   let sum = 0;
   for (let i = 0; i < v.length; i++) sum += v[i] * v[i];
@@ -136,4 +138,16 @@ export function normalize(v: Float32Array): Float32Array {
   const out = new Float32Array(v.length);
   for (let i = 0; i < v.length; i++) out[i] = norm > 0 ? v[i] / norm : 0;
   return out;
+}
+
+function normalizeInto(src: Float32Array, dst: Float32Array, offset: number): void {
+  const n = src.length;
+  let sum = 0;
+  for (let i = 0; i < n; i++) sum += src[i] * src[i];
+  const norm = Math.sqrt(sum);
+  if (norm > 0) {
+    for (let i = 0; i < n; i++) dst[offset + i] = src[i] / norm;
+  } else {
+    for (let i = 0; i < n; i++) dst[offset + i] = 0;
+  }
 }

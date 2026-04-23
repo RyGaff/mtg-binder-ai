@@ -6,7 +6,6 @@ import {
   Text,
   StyleSheet,
   Dimensions,
-  Platform,
   type ListRenderItem,
 } from 'react-native';
 import { useRouter } from 'expo-router';
@@ -29,7 +28,6 @@ type Props = {
   onAddPress: () => void;
 };
 
-type Theme = ReturnType<typeof useTheme>;
 type Router = ReturnType<typeof useRouter>;
 
 function keyExtractor(item: GridItem) {
@@ -42,8 +40,9 @@ function getItemLayout(_: ArrayLike<GridItem> | null | undefined, index: number)
   return { length: ROW_HEIGHT, offset: ROW_HEIGHT * Math.floor(index / COLS), index };
 }
 
-type AddCardProps = { theme: Theme; onPress: () => void };
-const AddCard = memo(function AddCard({ theme, onPress }: AddCardProps) {
+type AddCardProps = { onPress: () => void };
+const AddCard = memo(function AddCard({ onPress }: AddCardProps) {
+  const theme = useTheme();
   return (
     <TouchableOpacity
       style={[styles.card, styles.addCard, { borderColor: theme.accent + '60' }]}
@@ -57,11 +56,11 @@ const AddCard = memo(function AddCard({ theme, onPress }: AddCardProps) {
 
 type CollectionCardProps = {
   entry: CollectionEntryWithCard;
-  theme: Theme;
   router: Router;
 };
 const CollectionCard = memo(
-  function CollectionCard({ entry, theme, router }: CollectionCardProps) {
+  function CollectionCard({ entry, router }: CollectionCardProps) {
+    const theme = useTheme();
     const price = useMemo(() => {
       let prices: { usd?: string; usd_foil?: string } = {};
       try {
@@ -118,13 +117,11 @@ const CollectionCard = memo(
   },
   (prev, next) =>
     prev.entry === next.entry &&
-    prev.theme === next.theme &&
     prev.router === next.router,
 );
 
 export function CardGrid({ entries, onAddPress }: Props) {
   const router = useRouter();
-  const theme = useTheme();
 
   const data = useMemo<GridItem[]>(
     () => [...entries, { isAddButton: true }],
@@ -134,11 +131,11 @@ export function CardGrid({ entries, onAddPress }: Props) {
   const renderItem = useCallback<ListRenderItem<GridItem>>(
     ({ item }) => {
       if ('isAddButton' in item) {
-        return <AddCard theme={theme} onPress={onAddPress} />;
+        return <AddCard onPress={onAddPress} />;
       }
-      return <CollectionCard entry={item} theme={theme} router={router} />;
+      return <CollectionCard entry={item} router={router} />;
     },
-    [theme, router, onAddPress],
+    [router, onAddPress],
   );
 
   return (
@@ -151,9 +148,10 @@ export function CardGrid({ entries, onAddPress }: Props) {
       renderItem={renderItem}
       getItemLayout={getItemLayout}
       initialNumToRender={12}
-      maxToRenderPerBatch={9}
-      windowSize={7}
-      removeClippedSubviews={Platform.OS === 'android'}
+      maxToRenderPerBatch={6}
+      windowSize={3}
+      removeClippedSubviews={true}
+      updateCellsBatchingPeriod={50}
     />
   );
 }

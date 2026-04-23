@@ -9,7 +9,7 @@ import {
   LayoutChangeEvent,
   useWindowDimensions,
 } from 'react-native';
-import { Camera, useCameraDevice, useCameraPermission, useFrameProcessor } from 'react-native-vision-camera';
+import { Camera, useCameraDevice, useCameraPermission, useFrameProcessor, runAtTargetFps } from 'react-native-vision-camera';
 import type { Frame } from 'react-native-vision-camera';
 import { useSharedValue, useRunOnJS } from 'react-native-worklets-core';
 import * as ImagePicker from 'expo-image-picker';
@@ -438,13 +438,17 @@ export default function ScanScreen() {
     return () => { clearSessionCardCache(); };
   }, []);
 
-  const { setLastScannedId, addRecentScan, recentScans } = useStore();
+  const setLastScannedId = useStore(s => s.setLastScannedId);
+  const addRecentScan = useStore(s => s.addRecentScan);
+  const recentScans = useStore(s => s.recentScans);
 
   // Worklet-safe shared values — written on the frame processor thread
   const smoothedCornersWv = useSharedValue<CardCorners | null>(null);
   const stableCount = useSharedValue(0);
   const missCount = useSharedValue(0);
   const isCapturing = useSharedValue(false);
+  const lastDetectionState = useSharedValue<'none' | 'some'>('none');
+  const lastEmittedCentroid = useSharedValue<{ x: number; y: number } | null>(null);
 
   const PANEL_MAX_HEIGHT = 320;
   const panelHeightAnim = useRef(new Animated.Value(0)).current;
@@ -473,8 +477,10 @@ export default function ScanScreen() {
     smoothedCornersWv.value = null;
     stableCount.value = 0;
     missCount.value = 0;
+    lastDetectionState.value = 'none';
+    lastEmittedCentroid.value = null;
     setDetection(null);
-  }, [isCapturing, smoothedCornersWv, stableCount, missCount]);
+  }, [isCapturing, smoothedCornersWv, stableCount, missCount, lastDetectionState, lastEmittedCentroid]);
 
   const triggerOcr = useCallback(async () => {
     if (!cameraRef.current) { isCapturing.value = false; return; }
@@ -560,44 +566,61 @@ export default function ScanScreen() {
     if (cardPlugin == null) return;
     if (isCapturing.value) return;
 
-    const { corners: raw } = detectCardCornersInFrame(frame, cardPlugin);
+    runAtTargetFps(6, () => {
+      'worklet';
+      const { corners: raw } = detectCardCornersInFrame(frame, cardPlugin);
 
-    if (raw) {
-      const prev = smoothedCornersWv.value;
-      const smoothed = prev ? emaCorners(prev, raw) : raw;
-      const stable = prev ? cornersAreStable(prev, smoothed, STABLE_THRESHOLD) : false;
+      if (raw) {
+        const prev = smoothedCornersWv.value;
+        const smoothed = prev ? emaCorners(prev, raw) : raw;
+        const stable = prev ? cornersAreStable(prev, smoothed, STABLE_THRESHOLD) : false;
 
-      smoothedCornersWv.value = smoothed;
-      missCount.value = 0;
-
-      // Stability gate: require confidence >= CARD_CONFIDENCE_STABLE to trigger OCR
-      const meetsStableConf = raw.confidence >= CARD_CONFIDENCE_STABLE;
-      stableCount.value = (stable && meetsStableConf) ? stableCount.value + 1 : 0;
-
-      // Frame buffer comes from the native side in whatever orientation the camera
-      // produced. When landscape (w > h), swap dims so imageToScreen maps into
-      // the portrait view correctly.
-      const landscape = frame.width > frame.height;
-      jsSetDetection({
-        corners: smoothed,
-        imageW: landscape ? frame.height : frame.width,
-        imageH: landscape ? frame.width : frame.height,
-      });
-
-      if (stableCount.value >= STABLE_FRAMES) {
-        stableCount.value = 0;
-        isCapturing.value = true;
-        jsTriggerOcr();
-      }
-    } else {
-      missCount.value += 1;
-      if (missCount.value >= MISS_FRAMES) {
-        smoothedCornersWv.value = null;
+        smoothedCornersWv.value = smoothed;
         missCount.value = 0;
-        jsSetDetection(null);
+
+        const meetsStableConf = raw.confidence >= CARD_CONFIDENCE_STABLE;
+        stableCount.value = (stable && meetsStableConf) ? stableCount.value + 1 : 0;
+
+        const landscape = frame.width > frame.height;
+        const imageW = landscape ? frame.height : frame.width;
+        const imageH = landscape ? frame.width : frame.height;
+
+        const cxNorm = (smoothed.topLeft.x + smoothed.topRight.x + smoothed.bottomRight.x + smoothed.bottomLeft.x) / 4;
+        const cyNorm = (smoothed.topLeft.y + smoothed.topRight.y + smoothed.bottomRight.y + smoothed.bottomLeft.y) / 4;
+        const cxPx = cxNorm * imageW;
+        const cyPx = cyNorm * imageH;
+
+        const prevCentroid = lastEmittedCentroid.value;
+        const transitioned = lastDetectionState.value !== 'some';
+        const moved = !prevCentroid
+          || Math.abs(prevCentroid.x - cxPx) > 10
+          || Math.abs(prevCentroid.y - cyPx) > 10;
+
+        if (transitioned || moved) {
+          lastDetectionState.value = 'some';
+          lastEmittedCentroid.value = { x: cxPx, y: cyPx };
+          jsSetDetection({ corners: smoothed, imageW, imageH });
+        }
+
+        if (stableCount.value >= STABLE_FRAMES) {
+          stableCount.value = 0;
+          isCapturing.value = true;
+          jsTriggerOcr();
+        }
+      } else {
+        missCount.value += 1;
+        if (missCount.value >= MISS_FRAMES) {
+          smoothedCornersWv.value = null;
+          missCount.value = 0;
+          if (lastDetectionState.value !== 'none') {
+            lastDetectionState.value = 'none';
+            lastEmittedCentroid.value = null;
+            jsSetDetection(null);
+          }
+        }
       }
-    }
-  }, [cardPlugin, isCapturing, smoothedCornersWv, stableCount, missCount, jsTriggerOcr, jsSetDetection]);
+    });
+  }, [cardPlugin, isCapturing, smoothedCornersWv, stableCount, missCount, lastDetectionState, lastEmittedCentroid, jsTriggerOcr, jsSetDetection]);
 
   const pickFromLibrary = useCallback(async () => {
     isCapturing.value = false;

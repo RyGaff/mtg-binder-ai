@@ -14,8 +14,11 @@ type Props = { card: CachedCard };
 export function Synergy({ card }: Props) {
   const router = useRouter();
   const theme = useTheme();
-  const { data, isLoading, isError } = useSynergyFromCard(card);
+  const { data, isLoading, isError, fetchStatus, failureCount, refetch } = useSynergyFromCard(card);
   const entries = data?.entries ?? [];
+  // Keep showing a spinner while retries are pending/in-flight. Only surface
+  // "no data" once we have a successful fetch that returned empty.
+  const retrying = fetchStatus === 'fetching' || (isError && failureCount < 5);
   const metric = data?.metric ?? 'synergy';
   const heading = metric === 'synergy' ? 'Synergies' : 'Inclusion';
 
@@ -49,10 +52,14 @@ export function Synergy({ card }: Props) {
         </TouchableOpacity>
       </View>
 
-      {isLoading ? (
+      {isLoading || (retrying && entries.length === 0) ? (
         <ActivityIndicator color={theme.accent} style={styles.loader} />
-      ) : isError ? (
-        <Text style={[styles.empty, { color: theme.textSecondary }]}>Could not load {heading.toLowerCase()}</Text>
+      ) : isError && entries.length === 0 ? (
+        <TouchableOpacity onPress={() => refetch()} hitSlop={8}>
+          <Text style={[styles.empty, { color: theme.textSecondary }]}>
+            Could not load {heading.toLowerCase()}. Tap to retry.
+          </Text>
+        </TouchableOpacity>
       ) : entries.length === 0 ? (
         <Text style={[styles.empty, { color: theme.textSecondary }]}>No EDHREC data for this card</Text>
       ) : (

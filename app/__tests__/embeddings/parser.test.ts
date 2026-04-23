@@ -19,24 +19,29 @@ function makeBuffer(cards: Array<{ id: string; name?: string; vector: number[] }
   return buffer;
 }
 
+function rowVector(vectors: Float32Array, row: number, dim: number): Float32Array {
+  return vectors.subarray(row * dim, (row + 1) * dim);
+}
+
 const ID_A = 'aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee';
 const ID_B = 'ffffffff-0000-1111-2222-333333333333';
 
 describe('parseEmbeddingBuffer', () => {
-  it('returns empty maps for 0 cards', () => {
+  it('returns empty index for 0 cards', () => {
     const buffer = new ArrayBuffer(8);
     const view = new DataView(buffer);
     view.setUint32(0, 0, true);
     view.setUint32(4, 3, true);
-    const { byId, byName } = parseEmbeddingBuffer(buffer);
-    expect(byId.size).toBe(0);
+    const { size, idIndex, byName } = parseEmbeddingBuffer(buffer);
+    expect(size).toBe(0);
+    expect(idIndex.size).toBe(0);
     expect(byName.size).toBe(0);
   });
 
-  it('parses a single card into byId', () => {
+  it('parses a single card into idIndex', () => {
     const buffer = makeBuffer([{ id: ID_A, name: 'Lightning Bolt', vector: [1, 0, 0] }]);
-    const { byId } = parseEmbeddingBuffer(buffer);
-    expect(byId.has(ID_A)).toBe(true);
+    const { idIndex } = parseEmbeddingBuffer(buffer);
+    expect(idIndex.has(ID_A)).toBe(true);
   });
 
   it('parses card name into byName', () => {
@@ -45,30 +50,31 @@ describe('parseEmbeddingBuffer', () => {
     expect(byName.get('Lightning Bolt')).toBe(ID_A);
   });
 
-  it('parses two cards into maps with two entries each', () => {
+  it('parses two cards into two rows', () => {
     const buffer = makeBuffer([
       { id: ID_A, name: 'Lightning Bolt', vector: [1, 0, 0] },
       { id: ID_B, name: 'Counterspell', vector: [0, 1, 0] },
     ]);
-    const { byId, byName } = parseEmbeddingBuffer(buffer);
-    expect(byId.size).toBe(2);
+    const { size, idIndex, byName } = parseEmbeddingBuffer(buffer);
+    expect(size).toBe(2);
+    expect(idIndex.size).toBe(2);
     expect(byName.size).toBe(2);
   });
 
   it('normalizes vectors to unit length', () => {
     const buffer = makeBuffer([{ id: ID_A, vector: [3, 4, 0] }]);
-    const { byId } = parseEmbeddingBuffer(buffer);
-    const v = byId.get(ID_A)!;
+    const { vectors, dim, idIndex } = parseEmbeddingBuffer(buffer);
+    const row = idIndex.get(ID_A)!;
+    const v = rowVector(vectors, row, dim);
     const norm = Math.sqrt(v[0] ** 2 + v[1] ** 2 + v[2] ** 2);
     expect(norm).toBeCloseTo(1.0, 5);
   });
 
-  it('returns Float32Array for each card', () => {
+  it('stores vectors as a single Float32Array row-major buffer', () => {
     const buffer = makeBuffer([{ id: ID_A, vector: [1, 2, 3] }]);
-    const { byId } = parseEmbeddingBuffer(buffer);
-    const v = byId.get(ID_A)!;
-    expect(v).toBeInstanceOf(Float32Array);
-    expect(v.length).toBe(3);
+    const { vectors, dim } = parseEmbeddingBuffer(buffer);
+    expect(vectors).toBeInstanceOf(Float32Array);
+    expect(vectors.length).toBe(dim);
   });
 
   it('handles cards with no name (empty byName entry skipped)', () => {
@@ -83,8 +89,8 @@ function buildV2Buffer(records: Array<{ id: string; vec: number[] }>, modelHash 
   const recSize = 36 + dim * 4;
   const buf = new ArrayBuffer(20 + records.length * recSize);
   const view = new DataView(buf);
-  view.setUint32(0,  0x4D544745, false); // 'MTGE' magic (bytes 0x4D,0x54,0x47,0x45 on disk)
-  view.setUint32(4,  2, true);           // version 2
+  view.setUint32(0,  0x4D544745, false);
+  view.setUint32(4,  2, true);
   view.setUint32(8,  records.length, true);
   view.setUint32(12, dim, true);
   view.setUint32(16, modelHash, true);
@@ -111,15 +117,17 @@ describe('parseEmbeddingBuffer v2 (image embeddings)', () => {
     expect(result.version).toBe(2);
     expect(result.dim).toBe(4);
     expect(result.modelHash).toBe(0x12345678);
-    expect(result.byId.size).toBe(2);
-    expect(Array.from(result.byId.get('aaa-111')!)).toEqual([1, 0, 0, 0]);
+    expect(result.size).toBe(2);
+    const rowA = result.idIndex.get('aaa-111')!;
+    expect(Array.from(rowVector(result.vectors, rowA, result.dim))).toEqual([1, 0, 0, 0]);
     expect(result.byName.size).toBe(0);
   });
 
   it('L2-normalizes v2 vectors at parse time', () => {
     const buf = buildV2Buffer([{ id: 'aaa-111', vec: [3, 4, 0, 0] }]);
     const result = parseEmbeddingBuffer(buf);
-    const v = result.byId.get('aaa-111')!;
+    const row = result.idIndex.get('aaa-111')!;
+    const v = rowVector(result.vectors, row, result.dim);
     expect(v[0]).toBeCloseTo(0.6, 5);
     expect(v[1]).toBeCloseTo(0.8, 5);
     let sq = 0;
@@ -143,7 +151,7 @@ describe('parseEmbeddingBuffer v1 (text embeddings, backward-compat)', () => {
 
     const result = parseEmbeddingBuffer(buf);
     expect(result.version).toBe(1);
-    expect(result.byId.size).toBe(1);
+    expect(result.size).toBe(1);
     expect(result.byName.get('Testcard')).toBe('zzz');
   });
 });
@@ -186,8 +194,8 @@ describe('parseEmbeddingBuffer bounds checking', () => {
   it('throws RangeError for an unsupported v2 sub-version', () => {
     const buf = new ArrayBuffer(20);
     const v = new DataView(buf);
-    v.setUint32(0, 0x4D544745, false);  // magic (big-endian ⇒ bytes spell "MTGE")
-    v.setUint32(4, 3, true);            // future version
+    v.setUint32(0, 0x4D544745, false);
+    v.setUint32(4, 3, true);
     v.setUint32(8, 0, true);
     v.setUint32(12, 256, true);
     v.setUint32(16, 0, true);

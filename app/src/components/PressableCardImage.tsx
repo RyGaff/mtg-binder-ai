@@ -6,12 +6,15 @@ type Props = {
   style: StyleProp<ImageStyle>;
   onPress?: () => void;
   resizeMode?: 'cover' | 'contain' | 'stretch' | 'center';
+  thumb?: boolean;
+  onReady?: () => void;
 };
 
-function PressableCardImageImpl({ uri, style, onPress, resizeMode = 'cover' }: Props) {
+function PressableCardImageImpl({ uri, style, onPress, resizeMode = 'cover', thumb = false, onReady }: Props) {
   const [zoomed, setZoomed] = useState(false);
   const openZoom = useCallback(() => setZoomed(true), []);
   const closeZoom = useCallback(() => setZoomed(false), []);
+  const displayUri = thumb ? uri.replace('/normal.', '/small.') : uri;
 
   return (
     <>
@@ -22,7 +25,7 @@ function PressableCardImageImpl({ uri, style, onPress, resizeMode = 'cover' }: P
       </Modal>
 
       <Pressable onPress={onPress} onLongPress={openZoom}>
-        <Image source={{ uri }} style={style} resizeMode={resizeMode} />
+        <Image source={{ uri: displayUri }} style={style} resizeMode={resizeMode} onLoadEnd={onReady} />
       </Pressable>
     </>
   );

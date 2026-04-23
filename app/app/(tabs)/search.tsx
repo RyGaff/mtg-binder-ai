@@ -15,6 +15,7 @@ import { CardTile } from '../../src/components/CardTile';
 import { useScryfallSearch } from '../../src/api/hooks';
 import { useKeyboardAppearance, useTheme } from '../../src/theme/useTheme';
 import { useStore } from '../../src/store/useStore';
+import { useDebouncedValue } from '../../src/hooks/useDebouncedValue';
 import type { CachedCard } from '../../src/db/cards';
 
 // row 64 minHeight + 10*2 padding + 8 marginBottom — keep in sync with CardRow.
@@ -38,7 +39,8 @@ export default function SearchScreen() {
   const viewMode = useStore((s) => s.searchViewMode);
   const gridCols = useStore((s) => s.searchGridCols);
   const [query, setQuery] = useState('');
-  const { data: results = [], isLoading } = useScryfallSearch(query);
+  const debouncedQuery = useDebouncedValue(query, 350);
+  const { data: results = [], isLoading } = useScryfallSearch(debouncedQuery);
   const screenWidth = useWindowDimensions().width;
 
   const tileStyle = useMemo(

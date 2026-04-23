@@ -52,6 +52,7 @@ const CORNERS: import('../../modules/card-detector/src').CardCorners = {
   bottomLeft:  { x: 0.1, y: 0.9 },
   confidence:  0.85,
   rectifiedUri: 'file:///tmp/test.rect.jpg',
+  source:      'primary',
 };
 
 const MOCK_CARD = {

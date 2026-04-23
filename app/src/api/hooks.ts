@@ -11,16 +11,23 @@ import { fetchEdhrecSynergies, type SynergyResult } from './edhrec';
 const DAY_MS = 24 * 60 * 60 * 1000;
 const WEEK_MS = 7 * DAY_MS;
 
-/** Returns a card, using SQLite cache and falling back to Scryfall. */
+/** Returns a card, using SQLite cache and falling back to Scryfall.
+ *  On network / rate-limit failure, falls back to stale cache so callers
+ *  never hard-stop on a transient Scryfall error. */
 export function useCard(scryfallId: string) {
   return useQuery({
     queryKey: ['card', scryfallId],
     queryFn: async ({ signal }) => {
       const cached = getCardById(scryfallId);
       if (cached && !isCardStale(cached)) return cached;
-      const fresh = await fetchCardById(scryfallId, signal);
-      upsertCard(fresh);
-      return fresh;
+      try {
+        const fresh = await fetchCardById(scryfallId, signal);
+        upsertCard(fresh);
+        return fresh;
+      } catch (err) {
+        if (cached) return cached;
+        throw err;
+      }
     },
     enabled: !!scryfallId,
     staleTime: DAY_MS,
@@ -71,7 +78,10 @@ export function useSynergyFromCard(seed: CachedCard | null) {
     enabled: !!seed,
     staleTime: DAY_MS,
     gcTime: WEEK_MS,
-    retry: false,
+    // Retry on error AND on empty-entry result (EDHREC sometimes returns empty
+    // before warming). Exponential backoff capped at 30s, max 5 attempts.
+    retry: (count) => count < 5,
+    retryDelay: (count) => Math.min(1000 * 2 ** count, 30000),
   });
 }
 
@@ -162,16 +172,13 @@ export function useSimilarSearch(card: CachedCard) {
   return useQuery({
     queryKey: ['similar-embedding', card.scryfall_id],
     queryFn: async ({ signal }) => {
-      const { byId, byName } = await getEmbeddingMap();
-      console.log('[similar] map sizes — byId:', byId.size, 'byName:', byName.size);
+      const index = await getEmbeddingMap();
       // The embedding was built from oracle-cards (one printing per unique card).
       // The app may have cached a different printing, so fall back to name lookup.
-      const embeddingId = byId.has(card.scryfall_id)
+      const embeddingId = index.idIndex.has(card.scryfall_id)
         ? card.scryfall_id
-        : byName.get(card.name);
-      console.log('[similar] card:', card.name, 'scryfall_id:', card.scryfall_id, 'embeddingId:', embeddingId);
-      const results = embeddingId ? similaritySearch(embeddingId, byId, 20) : [];
-      console.log('[similar] results count:', results.length);
+        : index.byName.get(card.name);
+      const results = embeddingId ? similaritySearch(embeddingId, index, 20) : [];
 
       const ids = results.map((r) => r.scryfallId);
       const cachedMap = getCardsByIds(ids);

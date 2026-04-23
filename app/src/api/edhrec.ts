@@ -80,14 +80,38 @@ export function isCommanderEligible(card: CachedCard): boolean {
   return /can be your commander/i.test(card.oracle_text);
 }
 
+const MAX_ATTEMPTS = 5;
+const BASE_DELAY_MS = 750;
+
+function wait(ms: number, signal?: AbortSignal): Promise<void> {
+  return new Promise((resolve, reject) => {
+    const t = setTimeout(resolve, ms);
+    signal?.addEventListener('abort', () => {
+      clearTimeout(t);
+      reject(new DOMException('Aborted', 'AbortError'));
+    });
+  });
+}
+
+/** Fetches EDHREC JSON with exponential-backoff retries on transient failures.
+ *  404 → null (card legitimately not indexed). Final failure throws. */
 async function fetchJson(url: string, signal?: AbortSignal): Promise<EdhrecPage | null> {
-  try {
-    const res = await fetch(url, { signal });
-    if (!res.ok) return null;
-    return (await res.json()) as EdhrecPage;
-  } catch {
-    return null;
+  let lastErr: unknown;
+  for (let attempt = 0; attempt < MAX_ATTEMPTS; attempt++) {
+    try {
+      const res = await fetch(url, { signal });
+      if (res.status === 404) return null;
+      if (!res.ok) throw new Error(`EDHREC ${res.status}`);
+      return (await res.json()) as EdhrecPage;
+    } catch (err) {
+      if (signal?.aborted) throw err;
+      lastErr = err;
+      if (attempt < MAX_ATTEMPTS - 1) {
+        await wait(BASE_DELAY_MS * 2 ** attempt, signal);
+      }
+    }
   }
+  throw lastErr;
 }
 
 function scoreFor(cv: EdhrecCardView, metric: SynergyMetric): number | null {

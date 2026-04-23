@@ -33,24 +33,35 @@ export async function findCardByImage(rectifiedUri: string): Promise<ImageMatch 
     return null;
   }
   if (index.version !== 2) return null;
-  if (index.byId.size === 0) return null;
+  if (index.size === 0) return null;
   // Guard: mismatched encoder / embeddings would produce NaN scores silently
   // (vec[i] undefined for i ≥ vec.length). Refuse to search rather than
   // returning garbage that passes MATCH_MIN because `NaN < x` is false.
   if (index.dim !== query.length) return null;
 
   // Linear scan — 35k × 256 dot products ≈ 9M MACs, ~30 ms on phone.
+  const { ids, vectors, dim, size } = index;
   type Hit = { id: string; score: number };
   const topK: Hit[] = [];
-  for (const [id, vec] of index.byId) {
-    let score = 0;
-    for (let i = 0; i < query.length; i++) score += query[i] * vec[i];
+  for (let r = 0; r < size; r++) {
+    const offset = r * dim;
+    const limit = dim - (dim % 4);
+    let s0 = 0, s1 = 0, s2 = 0, s3 = 0;
+    let i = 0;
+    for (; i < limit; i += 4) {
+      s0 += query[i]     * vectors[offset + i];
+      s1 += query[i + 1] * vectors[offset + i + 1];
+      s2 += query[i + 2] * vectors[offset + i + 2];
+      s3 += query[i + 3] * vectors[offset + i + 3];
+    }
+    let score = s0 + s1 + s2 + s3;
+    for (; i < dim; i++) score += query[i] * vectors[offset + i];
 
     if (topK.length < TOP_K) {
-      topK.push({ id, score });
+      topK.push({ id: ids[r], score });
       topK.sort((a, b) => b.score - a.score);
     } else if (score > topK[TOP_K - 1].score) {
-      topK[TOP_K - 1] = { id, score };
+      topK[TOP_K - 1] = { id: ids[r], score };
       topK.sort((a, b) => b.score - a.score);
     }
   }

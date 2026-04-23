@@ -40,35 +40,60 @@ function normalize(card: ScryfallCard): CachedCard {
   };
 }
 
-async function get<T>(url: string): Promise<T> {
-  const res = await fetch(url, { headers: HEADERS });
-  if (!res.ok) throw new Error(`Scryfall ${res.status}: ${url}`);
-  return res.json();
+// Scryfall asks for ~100ms between requests. Serialize + space outbound calls.
+const MIN_GAP_MS = 100;
+let requestChain: Promise<unknown> = Promise.resolve();
+let lastFinish = 0;
+
+function throttled<T>(run: () => Promise<T>): Promise<T> {
+  const next = requestChain.then(async () => {
+    const waitNeeded = Math.max(0, MIN_GAP_MS - (Date.now() - lastFinish));
+    if (waitNeeded > 0) await new Promise((r) => setTimeout(r, waitNeeded));
+    try {
+      return await run();
+    } finally {
+      lastFinish = Date.now();
+    }
+  });
+  requestChain = next.catch(() => {});
+  return next;
 }
 
-export async function fetchCardById(id: string): Promise<CachedCard> {
-  const card = await get<ScryfallCard>(`${BASE}/cards/${id}`);
+async function get<T>(url: string, signal?: AbortSignal): Promise<T> {
+  return throttled(async () => {
+    const res = await fetch(url, { headers: HEADERS, signal });
+    if (!res.ok) {
+      const err = new Error(`Scryfall ${res.status}: ${url}`) as Error & { status?: number };
+      err.status = res.status;
+      throw err;
+    }
+    return res.json();
+  });
+}
+
+export async function fetchCardById(id: string, signal?: AbortSignal): Promise<CachedCard> {
+  const card = await get<ScryfallCard>(`${BASE}/cards/${id}`, signal);
   return normalize(card);
 }
 
-export async function fetchCardBySetNumber(setCode: string, collectorNumber: string): Promise<CachedCard> {
+export async function fetchCardBySetNumber(setCode: string, collectorNumber: string, signal?: AbortSignal): Promise<CachedCard> {
   // Use search endpoint (mirrors Python: /cards/search?q=set:ltr+cn:0322)
   // More robust than direct /cards/:set/:number — handles leading zeros, case etc.
   const url = `${BASE}/cards/search?q=set%3A${encodeURIComponent(setCode.toLowerCase())}+cn%3A${encodeURIComponent(collectorNumber)}`;
-  const result = await get<{ data: ScryfallCard[] }>(url);
+  const result = await get<{ data: ScryfallCard[] }>(url, signal);
   if (!result.data?.length) throw new Error(`Scryfall: no card for ${setCode}/${collectorNumber}`);
   return normalize(result.data[0]);
 }
 
-export async function fetchCardByName(name: string): Promise<CachedCard> {
+export async function fetchCardByName(name: string, signal?: AbortSignal): Promise<CachedCard> {
   const attempts: (() => Promise<ScryfallCard>)[] = [
-    () => get<ScryfallCard>(`${BASE}/cards/named?exact=${encodeURIComponent(name)}`),
-    () => get<ScryfallCard>(`${BASE}/cards/named?fuzzy=${encodeURIComponent(name)}`),
+    () => get<ScryfallCard>(`${BASE}/cards/named?exact=${encodeURIComponent(name)}`, signal),
+    () => get<ScryfallCard>(`${BASE}/cards/named?fuzzy=${encodeURIComponent(name)}`, signal),
   ];
   const frontFace = name.split(/\s*\/\/\s*/)[0];
   if (frontFace && frontFace !== name) {
     attempts.push(() =>
-      get<ScryfallCard>(`${BASE}/cards/named?fuzzy=${encodeURIComponent(frontFace)}`)
+      get<ScryfallCard>(`${BASE}/cards/named?fuzzy=${encodeURIComponent(frontFace)}`, signal)
     );
   }
 
@@ -98,17 +123,18 @@ export type PrintingSummary = {
   };
 };
 
-export async function searchScryfall(query: string, page = 1): Promise<CachedCard[]> {
+export async function searchScryfall(query: string, page = 1, signal?: AbortSignal): Promise<CachedCard[]> {
   const result = await get<SearchResult>(
-    `${BASE}/cards/search?q=${encodeURIComponent(query)}&page=${page}&order=name`
+    `${BASE}/cards/search?q=${encodeURIComponent(query)}&page=${page}&order=name`,
+    signal
   );
   return result.data.map(normalize);
 }
 
-export async function fetchPrintings(name: string): Promise<PrintingSummary[]> {
+export async function fetchPrintings(name: string, signal?: AbortSignal): Promise<PrintingSummary[]> {
   const query = `!"${name}"`;
   const url = `${BASE}/cards/search?q=${encodeURIComponent(query)}&unique=prints&order=released&dir=desc`;
-  const result = await get<SearchResult>(url);
+  const result = await get<SearchResult>(url, signal);
   return result.data.map(c => ({
     scryfall_id: c.id,
     set_code: c.set,

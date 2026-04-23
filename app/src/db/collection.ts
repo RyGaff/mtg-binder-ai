@@ -19,15 +19,42 @@ export type AddToCollectionArgs = {
   condition: CollectionEntry['condition'];
 };
 
+const ADD_TO_COLLECTION_SQL =
+  `INSERT INTO collection_entries (scryfall_id, quantity, foil, condition, added_at)
+   VALUES (?, ?, ?, ?, ?)
+   ON CONFLICT(scryfall_id, foil, condition)
+   DO UPDATE SET quantity = quantity + excluded.quantity`;
+
 export function addToCollection(args: AddToCollectionArgs): void {
   const db = getDb();
   db.runSync(
-    `INSERT INTO collection_entries (scryfall_id, quantity, foil, condition, added_at)
-     VALUES (?, ?, ?, ?, ?)
-     ON CONFLICT(scryfall_id, foil, condition)
-     DO UPDATE SET quantity = quantity + excluded.quantity`,
+    ADD_TO_COLLECTION_SQL,
     [args.scryfall_id, args.quantity, args.foil ? 1 : 0, args.condition, Date.now()]
   );
+}
+
+/**
+ * Bulk add entries in a single transaction with a reused prepared statement.
+ * Use for CSV/JSON imports — each `addToCollection` otherwise pays a full
+ * fsync on its own transaction boundary.
+ */
+export function addManyToCollection(entries: readonly AddToCollectionArgs[]): void {
+  if (entries.length === 0) return;
+  const db = getDb();
+  const now = Date.now();
+  const stmt = db.prepareSync(ADD_TO_COLLECTION_SQL);
+  try {
+    db.withTransactionSync(() => {
+      for (let i = 0; i < entries.length; i++) {
+        const args = entries[i];
+        stmt.executeSync([
+          args.scryfall_id, args.quantity, args.foil ? 1 : 0, args.condition, now + i,
+        ]);
+      }
+    });
+  } finally {
+    stmt.finalizeSync();
+  }
 }
 
 function normalizeFoil(rows: CollectionEntryWithCard[]): CollectionEntryWithCard[] {
@@ -94,14 +121,21 @@ export function clearCollection(): void {
 
 export function getCollectionTotalValue(): number {
   const db = getDb();
-  const rows = db.getAllSync<{ prices: string; quantity: number; foil: number }>(
-    'SELECT c.prices, ce.quantity, ce.foil FROM collection_entries ce JOIN cards c ON c.scryfall_id = ce.scryfall_id'
+  // Pushes JSON extraction + SUM into SQLite (JSON1 is built into expo-sqlite).
+  // Avoids transferring every row + prices blob into JS just to parse and sum.
+  const row = db.getFirstSync<{ total: number | null }>(
+    `SELECT SUM(
+       CAST(
+         COALESCE(
+           json_extract(c.prices, CASE WHEN ce.foil = 1 THEN '$.usd_foil' ELSE '$.usd' END),
+           '0'
+         ) AS REAL
+       ) * ce.quantity
+     ) AS total
+     FROM collection_entries ce
+     JOIN cards c ON c.scryfall_id = ce.scryfall_id`
   );
-  return rows.reduce((sum, row) => {
-    const prices = JSON.parse(row.prices ?? '{}');
-    const price = row.foil ? parseFloat(prices.usd_foil ?? '0') : parseFloat(prices.usd ?? '0');
-    return sum + price * row.quantity;
-  }, 0);
+  return row?.total ?? 0;
 }
 
 export function getFoilCount(): number {

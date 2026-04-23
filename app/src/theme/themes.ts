@@ -11,12 +11,37 @@ export type Theme = {
   text: string;
   textSecondary: string;
   accent: string;
+  foilAccent: string;
+  danger: string;
+  success: string;
 };
 
 export type CustomTheme = Theme & {
   name: CustomThemeName;
   label: string;
 };
+
+// Shared design tokens — live outside Theme so custom themes don't store layout.
+export const spacing = { xs: 4, sm: 8, md: 12, lg: 16, xl: 24, xxl: 32 } as const;
+export const radius = { sm: 4, md: 8, lg: 12, xl: 16, pill: 100 } as const;
+export const font = {
+  caption: 11,
+  small:   12,
+  body:    14,
+  subhead: 15,
+  title:   18,
+  hero:    22,
+} as const;
+// iOS Human Interface Guidelines minimum touch target.
+export const MIN_TOUCH = 44;
+// Standard hitSlop for icon-only / small text controls.
+export const HIT_SLOP_8 = { top: 8, bottom: 8, left: 8, right: 8 };
+
+const SHARED = {
+  foilAccent: '#b8a0e8',
+  danger: '#b71c1c',
+  success: '#1eb464',
+} as const;
 
 export const themes: Record<'dark' | 'light' | 'amoled', Theme> = {
   dark: {
@@ -28,6 +53,7 @@ export const themes: Record<'dark' | 'light' | 'amoled', Theme> = {
     text: '#ffffff',
     textSecondary: '#888888',
     accent: '#4ecdc4',
+    ...SHARED,
   },
   light: {
     name: 'light',
@@ -38,6 +64,7 @@ export const themes: Record<'dark' | 'light' | 'amoled', Theme> = {
     text: '#000000',
     textSecondary: '#6d6d72',
     accent: '#4ecdc4',
+    ...SHARED,
   },
   amoled: {
     name: 'amoled',
@@ -48,5 +75,6 @@ export const themes: Record<'dark' | 'light' | 'amoled', Theme> = {
     text: '#ffffff',
     textSecondary: '#888888',
     accent: '#4ecdc4',
+    ...SHARED,
   },
 };

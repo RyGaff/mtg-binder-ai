@@ -13,8 +13,13 @@ export function getDb(): SQLite.SQLiteDatabase {
 function initSchema(db: SQLite.SQLiteDatabase): void {
   db.execSync('PRAGMA journal_mode = WAL;');
   db.execSync('PRAGMA foreign_keys = ON;');
+  // Reduces fsync pressure on WAL commits; safe for an app-local cache DB.
+  db.execSync('PRAGMA synchronous = NORMAL;');
+  db.execSync('PRAGMA temp_store = MEMORY;');
+  db.execSync('PRAGMA mmap_size = 134217728;'); // 128 MB memory-mapped I/O
   db.withTransactionSync(() => {
     db.execSync(`
+    -- NOTE: do NOT add WITHOUT ROWID — cards_fts joins on cards.rowid
     CREATE TABLE IF NOT EXISTS cards (
       scryfall_id     TEXT PRIMARY KEY,
       name            TEXT NOT NULL,
@@ -92,6 +97,20 @@ function initSchema(db: SQLite.SQLiteDatabase): void {
       board       TEXT NOT NULL DEFAULT 'main',
       PRIMARY KEY (deck_id, scryfall_id, board)
     );
+
+    -- Covers getCardBySetNumber (hot path on import + scan confirmation).
+    CREATE INDEX IF NOT EXISTS cards_set_number_idx
+      ON cards (set_code, collector_number);
+
+    -- Covers ORDER BY c.name on the binder grid without a sort step.
+    CREATE INDEX IF NOT EXISTS cards_name_idx
+      ON cards (name);
+
+    -- Speeds up FK-driven joins from deck_cards -> cards on scryfall_id
+    -- (PK is (deck_id, scryfall_id, board), so lookups by scryfall_id alone
+    -- were doing an index-range scan over the whole deck_cards table).
+    CREATE INDEX IF NOT EXISTS deck_cards_scryfall_idx
+      ON deck_cards (scryfall_id);
   `);
   });
 }

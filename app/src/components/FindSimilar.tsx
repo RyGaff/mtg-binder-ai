@@ -1,9 +1,11 @@
-import { View, Text, ScrollView, TouchableOpacity, ActivityIndicator, StyleSheet } from 'react-native';
+import { View, Text, ScrollView, TouchableOpacity, ActivityIndicator, StyleSheet, useWindowDimensions } from 'react-native';
 import { useRouter } from 'expo-router';
+import { useCallback, useMemo } from 'react';
 import { useSimilarSearch } from '../api/hooks';
 import { useStore } from '../store/useStore';
 import { useTheme } from '../theme/useTheme';
 import { PressableCardImage } from './PressableCardImage';
+import { spacing, radius, font } from '../theme/themes';
 import type { CachedCard } from '../db/cards';
 
 type Props = { card: CachedCard };
@@ -13,6 +15,17 @@ export function FindSimilar({ card }: Props) {
   const theme = useTheme();
   const embeddingStatus = useStore((s) => s.embeddingStatus);
   const { data: similar = [], isLoading, isError } = useSimilarSearch(card);
+  const { width: winW } = useWindowDimensions();
+  // Fit ~3.5 tiles into the visible row; clamp so they're never absurdly small or large.
+  const tileSize = useMemo(() => {
+    const w = Math.min(Math.max((winW - spacing.lg * 2) / 3.5, 84), 130);
+    return { width: w, imageHeight: w * 1.4 };
+  }, [winW]);
+
+  const openCard = useCallback((scryfallId: string) => {
+    useStore.getState().markInternalTrailNav();
+    router.replace(`/card/${scryfallId}`);
+  }, [router]);
 
   return (
     <View style={[styles.container, { backgroundColor: theme.surface }]}>
@@ -38,20 +51,21 @@ export function FindSimilar({ card }: Props) {
           {similar.map(c => (
             <TouchableOpacity
               key={c.scryfall_id}
-              style={styles.cardItem}
-              onPress={() => router.push(`/card/${c.scryfall_id}`)}
+              style={[styles.cardItem, { width: tileSize.width }]}
+              onPress={() => openCard(c.scryfall_id)}
+              accessibilityRole="button"
               accessibilityLabel={c.name}
             >
               {c.image_uri ? (
                 <PressableCardImage
                   uri={c.image_uri}
-                  style={[styles.cardImage, { backgroundColor: theme.surface }]}
-                  onPress={() => router.push(`/card/${c.scryfall_id}`)}
+                  style={[styles.cardImage, { width: tileSize.width, height: tileSize.imageHeight, backgroundColor: theme.surface }]}
+                  onPress={() => openCard(c.scryfall_id)}
                 />
               ) : (
-                <View style={[styles.cardImage, { backgroundColor: theme.surfaceAlt }]} />
+                <View style={[styles.cardImage, { width: tileSize.width, height: tileSize.imageHeight, backgroundColor: theme.surfaceAlt }]} />
               )}
-              <Text style={[styles.cardName, { color: theme.text }]} numberOfLines={1}>{c.name}</Text>
+              <Text style={[styles.cardName, { color: theme.text, width: tileSize.width }]} numberOfLines={1} ellipsizeMode="tail">{c.name}</Text>
               <Text style={[styles.cardMana, { color: theme.textSecondary }]} numberOfLines={1}>{c.mana_cost}</Text>
             </TouchableOpacity>
           ))}
@@ -62,15 +76,15 @@ export function FindSimilar({ card }: Props) {
 }
 
 const styles = StyleSheet.create({
-  container: { borderRadius: 8, padding: 12, marginTop: 12 },
-  heading: { fontWeight: '700', marginBottom: 8, fontSize: 13 },
-  downloadingRow: { flexDirection: 'row', alignItems: 'center', gap: 8, marginTop: 4 },
-  downloadingText: { fontSize: 12 },
-  loader: { marginVertical: 12 },
-  strip: { gap: 8 },
-  cardItem: { width: 100, alignItems: 'center' },
-  cardImage: { width: 100, height: 140, borderRadius: 6 },
-  cardName: { fontSize: 10, fontWeight: '600', marginTop: 4, textAlign: 'center', width: 100 },
+  container: { borderRadius: radius.md, padding: spacing.md, marginTop: spacing.md },
+  heading: { fontWeight: '700', marginBottom: spacing.sm, fontSize: 13 },
+  downloadingRow: { flexDirection: 'row', alignItems: 'center', gap: spacing.sm, marginTop: spacing.xs },
+  downloadingText: { fontSize: font.small },
+  loader: { marginVertical: spacing.md },
+  strip: { gap: spacing.sm },
+  cardItem: { alignItems: 'center' },
+  cardImage: { borderRadius: radius.sm + 2 },
+  cardName: { fontSize: 10, fontWeight: '600', marginTop: spacing.xs, textAlign: 'center' },
   cardMana: { fontSize: 10, marginTop: 1, textAlign: 'center' },
-  empty: { fontSize: 12 },
+  empty: { fontSize: font.small },
 });

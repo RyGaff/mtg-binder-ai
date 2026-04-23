@@ -1,58 +1,70 @@
-import { Tabs, useRouter} from 'expo-router';
-import { Text, TouchableOpacity } from 'react-native';
+import { Tabs, useRouter } from 'expo-router';
+import { TouchableOpacity } from 'react-native';
+import { useTheme } from '../../src/theme/useTheme';
+import { spacing, HIT_SLOP_8 } from '../../src/theme/themes';
+import { Icon, type IconName } from '../../src/components/icons/Icon';
 
-function TabIcon({ label }: { label: string }) {
-  return <Text style={{ fontSize: 18 }}>{label}</Text>;
+function tabIcon(name: IconName) {
+  return ({ color, size }: { color: string; size: number }) => (
+    <Icon name={name} size={size} color={color} strokeWidth={1.8} />
+  );
 }
 
 export default function TabLayout() {
   const router = useRouter();
+  const theme = useTheme();
 
   return (
     <Tabs
       screenOptions={{
-        tabBarStyle: { backgroundColor: '#111318', borderTopColor: '#7c848e' },
-        tabBarActiveTintColor: '#4ecdc4',
-        tabBarInactiveTintColor: '#888',
-        headerStyle: { backgroundColor: '#30343f' },
-        headerTintColor: '#fff',
+        tabBarStyle: { backgroundColor: theme.surface, borderTopColor: theme.border },
+        tabBarActiveTintColor: theme.accent,
+        tabBarInactiveTintColor: theme.textSecondary,
+        headerStyle: { backgroundColor: theme.surface },
+        headerTintColor: theme.text,
       }}
     >
       <Tabs.Screen
         name="index"
         options={{
           title: 'Binder',
-          tabBarIcon: () => <TabIcon label="📦" />,
+          tabBarIcon: tabIcon('binder'),
+          tabBarAccessibilityLabel: 'Binder',
           headerRight: () => (
             <TouchableOpacity
               onPress={() => router.push('/profile')}
-              style={{ marginRight: 16 }}
-              accessibilityLabel='Profile'
-              >
-                <Text style={{ fontSize: 20 }}>👤</Text>
-              </TouchableOpacity>
-          )
+              style={{ marginRight: spacing.lg, padding: spacing.sm }}
+              hitSlop={HIT_SLOP_8}
+              accessibilityRole="button"
+              accessibilityLabel="Profile"
+            >
+              <Icon name="profile" size={22} color={theme.text} />
+            </TouchableOpacity>
+          ),
         }}
       />
       <Tabs.Screen
         name="search"
         options={{
           title: 'Search',
-          tabBarIcon: () => <TabIcon label="🔍" />,
+          tabBarIcon: tabIcon('search'),
+          tabBarAccessibilityLabel: 'Search',
         }}
       />
       <Tabs.Screen
         name="scan"
         options={{
           title: 'Scan',
-          tabBarIcon: () => <TabIcon label="📷" />,
+          tabBarIcon: tabIcon('camera'),
+          tabBarAccessibilityLabel: 'Scan',
         }}
       />
       <Tabs.Screen
         name="decks"
         options={{
           title: 'Decks',
-          tabBarIcon: () => <TabIcon label="🃏" />,
+          tabBarIcon: tabIcon('cards'),
+          tabBarAccessibilityLabel: 'Decks',
         }}
       />
     </Tabs>

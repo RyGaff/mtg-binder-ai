@@ -6,10 +6,11 @@ import {
   TouchableOpacity,
   Alert,
   ActivityIndicator,
+  Platform,
   StyleSheet,
 } from 'react-native';
 import { useRouter } from 'expo-router';
-import { useState } from 'react';
+import { useCallback, useState } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import * as Sharing from 'expo-sharing';
 import * as FileSystem from 'expo-file-system/legacy';
@@ -22,23 +23,28 @@ import {
   getCollectionByColor,
   searchCollection,
   getCollectionTotalValue,
-  addToCollection,
+  addManyToCollection,
   clearCollection,
+  type AddToCollectionArgs,
 } from '../../src/db/collection';
-import { upsertCard, getCardBySetNumber, getCardById } from '../../src/db/cards';
+import { upsertCards, getCardBySetNumber, getCardById, type CachedCard } from '../../src/db/cards';
 import {
   serializeToJson,
   serializeToCsv,
   parseImportFile,
 } from '../../src/export/collection';
 import { fetchCardByName, fetchCardBySetNumber } from '../../src/api/scryfall';
-import { useTheme } from '../../src/theme/useTheme';
+import { useKeyboardAppearance, useTheme } from '../../src/theme/useTheme';
+import { spacing, radius, font, MIN_TOUCH, HIT_SLOP_8 } from '../../src/theme/themes';
+import { Icon } from '../../src/components/icons/Icon';
 
 export default function BinderScreen() {
   const theme = useTheme();
+  const keyboardAppearance = useKeyboardAppearance();
   const router = useRouter();
   const qc = useQueryClient();
-  const { colorFilter, setColorFilter } = useStore();
+  const colorFilter = useStore((s) => s.colorFilter);
+  const setColorFilter = useStore((s) => s.setColorFilter);
 
   const [searchQuery, setSearchQuery] = useState('');
   const [importProgress, setImportProgress] = useState<{
@@ -92,6 +98,8 @@ export default function BinderScreen() {
     const format = asset.name.endsWith('.csv') ? 'csv' : 'json';
     const rows = parseImportFile(content, format);
 
+    const toUpsert: CachedCard[] = [];
+    const toAdd: AddToCollectionArgs[] = [];
     let added = 0;
     let failed = 0;
     setImportProgress({ current: 0, total: rows.length, currentName: '' });
@@ -102,7 +110,6 @@ export default function BinderScreen() {
       try {
         let scryfallId = row.scryfall_id;
         if (!scryfallId) {
-          // Check local cache first to avoid unnecessary Scryfall requests
           const cached =
             row.set_code && row.collector_number
               ? getCardBySetNumber(row.set_code, row.collector_number)
@@ -116,19 +123,18 @@ export default function BinderScreen() {
               row.set_code && row.collector_number
                 ? await fetchCardBySetNumber(row.set_code, row.collector_number)
                 : await fetchCardByName(row.name);
-            upsertCard(card);
+            toUpsert.push(card);
             scryfallId = card.scryfall_id;
           }
         } else if (!getCardById(scryfallId)) {
-          // scryfall_id present but card not cached yet (e.g. our own JSON export)
           await new Promise((r) => setTimeout(r, 100));
           const card = await fetchCardBySetNumber(
             row.set_code ?? '',
             row.collector_number ?? ''
           ).catch(() => fetchCardByName(row.name));
-          upsertCard(card);
+          toUpsert.push(card);
         }
-        addToCollection({
+        toAdd.push({
           scryfall_id: scryfallId,
           quantity: row.quantity,
           foil: row.foil,
@@ -139,6 +145,9 @@ export default function BinderScreen() {
         failed++;
       }
     }
+
+    if (toUpsert.length) upsertCards(toUpsert);
+    if (toAdd.length) addManyToCollection(toAdd);
 
     setImportProgress(null);
     qc.invalidateQueries({ queryKey: ['collection'] });
@@ -152,6 +161,8 @@ export default function BinderScreen() {
   const progress = importProgress
     ? importProgress.current / importProgress.total
     : 0;
+
+  const handleAddPress = useCallback(() => router.push('/search'), [router]);
 
   return (
     <View style={[styles.container, { backgroundColor: theme.bg }]}>
@@ -191,18 +202,32 @@ export default function BinderScreen() {
         </View>
       </View>
       <View style={styles.toolbar}>
-        <TextInput
-          style={[styles.searchBar, { backgroundColor: theme.surface, color: theme.text }]}
-          placeholder="Search..."
-          placeholderTextColor={theme.textSecondary}
-          value={searchQuery}
-          onChangeText={setSearchQuery}
-          clearButtonMode="while-editing"
-          autoCorrect={false}
-        />
+        <View style={[styles.searchWrap, { backgroundColor: theme.surface }]}>
+          <TextInput
+            style={[styles.searchBar, { color: theme.text }]}
+            placeholder="Search..."
+            placeholderTextColor={theme.textSecondary}
+            value={searchQuery}
+            onChangeText={setSearchQuery}
+            clearButtonMode={Platform.OS === 'ios' ? 'while-editing' : 'never'}
+            autoCorrect={false}
+            keyboardAppearance={keyboardAppearance}
+          />
+          {Platform.OS !== 'ios' && searchQuery.length > 0 && (
+            <TouchableOpacity
+              onPress={() => setSearchQuery('')}
+              style={styles.clearBtn}
+              hitSlop={HIT_SLOP_8}
+              accessibilityRole="button"
+              accessibilityLabel="Clear search"
+            >
+              <Icon name="close" size={16} color={theme.textSecondary} />
+            </TouchableOpacity>
+          )}
+        </View>
         <ColorFilter active={colorFilter} onChange={setColorFilter} />
       </View>
-      <CardGrid entries={entries} onAddPress={() => router.push('/search')} />
+      <CardGrid entries={entries} onAddPress={handleAddPress} />
 
       <Modal visible={importProgress !== null} transparent animationType="fade">
         <View style={styles.overlay}>
@@ -231,33 +256,48 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
-    paddingHorizontal: 16,
-    paddingVertical: 10,
+    paddingHorizontal: spacing.lg,
+    paddingVertical: spacing.sm + 2,
+    minHeight: MIN_TOUCH + spacing.lg,
   },
   count: { fontSize: 13 },
   value: { fontSize: 16, fontWeight: '700' },
-  headerBtns: { flexDirection: 'row', gap: 8 },
+  headerBtns: { flexDirection: 'row', gap: spacing.sm },
   headerBtn: {
-    borderRadius: 6,
-    paddingHorizontal: 12,
-    paddingVertical: 6,
+    borderRadius: radius.sm + 2,
+    paddingHorizontal: spacing.md,
+    paddingVertical: spacing.sm,
+    minHeight: MIN_TOUCH,
+    justifyContent: 'center',
+    alignItems: 'center',
   },
-  headerBtnText: { fontSize: 12, fontWeight: '600' },
+  headerBtnText: { fontSize: font.small, fontWeight: '600' },
   headerBtnDanger: { backgroundColor: '#7a1a1a' },
   toolbar: {
     flexDirection: 'row',
     alignItems: 'center',
-    paddingHorizontal: 12,
-    paddingVertical: 6,
-    gap: 8,
+    paddingHorizontal: spacing.md,
+    paddingVertical: spacing.sm,
+    gap: spacing.sm,
+  },
+  searchWrap: {
+    flex: 1,
+    flexDirection: 'row',
+    alignItems: 'center',
+    borderRadius: radius.md,
+    paddingHorizontal: spacing.md,
+    minHeight: MIN_TOUCH,
   },
   searchBar: {
     flex: 1,
-    paddingHorizontal: 12,
-    paddingVertical: 8,
-    borderRadius: 8,
-    fontSize: 14,
+    paddingVertical: spacing.sm,
+    fontSize: font.body,
   },
+  clearBtn: {
+    paddingHorizontal: spacing.sm,
+    paddingVertical: spacing.xs,
+  },
+  clearBtnText: { fontSize: font.body, fontWeight: '600' },
   overlay: {
     flex: 1,
     backgroundColor: 'rgba(0,0,0,0.7)',
@@ -265,14 +305,14 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
   },
   importCard: {
-    borderRadius: 16,
-    padding: 28,
+    borderRadius: radius.xl,
+    padding: spacing.xl + 4,
     width: 280,
     alignItems: 'center',
-    gap: 12,
+    gap: spacing.md,
   },
   importTitle: { fontSize: 17, fontWeight: '700' },
-  importCount: { fontSize: 22, fontWeight: '700' },
+  importCount: { fontSize: font.hero, fontWeight: '700' },
   importName: { fontSize: 13, maxWidth: 220, textAlign: 'center' },
   progressTrack: {
     width: '100%',

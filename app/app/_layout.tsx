@@ -7,7 +7,15 @@ import { useStore } from '../src/store/useStore';
 
 const queryClient = new QueryClient({
   defaultOptions: {
-    queries: { retry: 1, staleTime: 5 * 60 * 1000 },
+    queries: {
+      retry: 1,
+      staleTime: 5 * 60 * 1000,
+      // short gcTime trims memory; per-query overrides extend for card/synergy/printings
+      gcTime: 30 * 60 * 1000,
+      refetchOnWindowFocus: false,
+      refetchOnReconnect: false,
+    },
+    mutations: { retry: 0 },
   },
 });
 
@@ -33,7 +41,7 @@ export default function RootLayout() {
           options={{
             presentation: 'modal',
             headerShown: false,
-            gestureEnabled: true,
+            gestureEnabled: false,
           }}
         />
         <Stack.Screen

@@ -7,6 +7,8 @@ import type { CachedCard } from '../db/cards';
 type ColorFilter = 'W' | 'U' | 'B' | 'R' | 'G' | 'C' | 'all';
 type SortOption = 'name' | 'value' | 'set' | 'added';
 export type EmbeddingStatus = 'idle' | 'downloading' | 'error';
+export type SearchViewMode = 'list' | 'grid';
+export type SearchGridCols = 1 | 2 | 3 | 4 | 5;
 type ThemeSlots = [CustomTheme | null, CustomTheme | null, CustomTheme | null];
 
 type Store = {
@@ -31,6 +33,25 @@ type Store = {
   // Embeddings
   embeddingStatus: EmbeddingStatus;
   setEmbeddingStatus: (status: EmbeddingStatus) => void;
+
+  // Search view preferences
+  searchViewMode: SearchViewMode;
+  setSearchViewMode: (mode: SearchViewMode) => void;
+  searchGridCols: SearchGridCols;
+  setSearchGridCols: (cols: SearchGridCols) => void;
+
+  // Card detail breadcrumb trail (in-memory, not persisted)
+  cardTrail: { id: string; name: string }[];
+  pushCardTrail: (entry: { id: string; name: string }) => void;
+  clearCardTrail: () => void;
+  /** Set by in-modal navigators (synergy, similar, printings) before router.replace
+      so the modal's beforeRemove listener doesn't treat the replace as a dismiss. */
+  suppressTrailReset: boolean;
+  markInternalTrailNav: () => void;
+  /** Direction of the last in-modal navigation, consumed by the card screen on mount
+      to animate a horizontal slide. Reset to 'initial' after each animation plays. */
+  lastCardNavDir: 'initial' | 'forward' | 'backward';
+  setLastCardNavDir: (d: 'initial' | 'forward' | 'backward') => void;
 
   // Theme
   theme: ThemeName;
@@ -58,6 +79,26 @@ export const useStore = create<Store>()(
         })),
       embeddingStatus: 'idle',
       setEmbeddingStatus: (embeddingStatus) => set({ embeddingStatus }),
+      cardTrail: [],
+      pushCardTrail: (entry) =>
+        set((state) => {
+          const last = state.cardTrail[state.cardTrail.length - 1];
+          if (last && last.id === entry.id) return state;
+          const existing = state.cardTrail.findIndex((t) => t.id === entry.id);
+          if (existing >= 0) {
+            return { cardTrail: state.cardTrail.slice(0, existing + 1) };
+          }
+          return { cardTrail: [...state.cardTrail, entry].slice(-5) };
+        }),
+      clearCardTrail: () => set({ cardTrail: [], lastCardNavDir: 'initial' }),
+      suppressTrailReset: false,
+      markInternalTrailNav: () => set({ suppressTrailReset: true, lastCardNavDir: 'forward' }),
+      lastCardNavDir: 'initial',
+      setLastCardNavDir: (lastCardNavDir) => set({ lastCardNavDir }),
+      searchViewMode: 'list',
+      setSearchViewMode: (searchViewMode) => set({ searchViewMode }),
+      searchGridCols: 3,
+      setSearchGridCols: (searchGridCols) => set({ searchGridCols }),
       theme: 'dark',
       setTheme: (theme) => set({ theme }),
       customThemes: [null, null, null],
@@ -77,7 +118,12 @@ export const useStore = create<Store>()(
     {
       name: 'app-store',
       storage: createJSONStorage(() => AsyncStorage),
-      partialize: (state) => ({ theme: state.theme, customThemes: state.customThemes }),
+      partialize: (state) => ({
+        theme: state.theme,
+        customThemes: state.customThemes,
+        searchViewMode: state.searchViewMode,
+        searchGridCols: state.searchGridCols,
+      }),
       merge: (persistedState, currentState) => ({
         ...currentState,
         ...(persistedState as Partial<Store>),

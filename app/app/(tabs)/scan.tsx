@@ -15,11 +15,20 @@ import { useSharedValue, useRunOnJS } from 'react-native-worklets-core';
 import * as ImagePicker from 'expo-image-picker';
 import { useRef, useState, useCallback, useEffect } from 'react';
 import { useRouter } from 'expo-router';
+import { useIsFocused } from '@react-navigation/native';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { scanCard, scanCardByImage, MATCH_ACCEPT, EMBEDDING_SCAN_ENABLED } from '../../src/scanner/ocr';
 import { upsertCard } from '../../src/db/cards';
 import { clearSessionCardCache } from '../../src/api/cards';
 import { useStore } from '../../src/store/useStore';
 import { useTheme } from '../../src/theme/useTheme';
+import { spacing, MIN_TOUCH, HIT_SLOP_8 } from '../../src/theme/themes';
+import { Icon } from '../../src/components/icons/Icon';
+
+// Region overlay markers — fixed signal colors (gold = BL, cyan = name).
+// Independent of theme so detection regions stay readable on any background.
+const BL_REGION_COLOR = '#FFD700';
+const NAME_REGION_COLOR = '#00DCDC';
 import type { CardCorners } from '../../modules/card-detector/src';
 import { detectCardCorners, detectCardCornersInFrame, initCardDetectorPlugin, CARD_CONFIDENCE_STABLE } from '../../modules/card-detector/src';
 import type { FrameProcessorPlugin } from 'react-native-vision-camera';
@@ -147,12 +156,8 @@ function CardDetectionOverlay({
   const nameBL = { x: nameTL.x + nameDownVec.x * nameH, y: nameTL.y + nameDownVec.y * nameH };
   const nameBR = { x: nameTR.x + nameDownVec.x * nameH, y: nameTR.y + nameDownVec.y * nameH };
 
-  const blColor = activeRegion === 'bl'
-    ? 'rgba(255,215,0,1.0)'
-    : 'rgba(255,215,0,0.5)';
-  const nameColor = activeRegion === 'name'
-    ? 'rgba(0,220,220,1.0)'
-    : 'rgba(0,220,220,0.3)';
+  const blColor = activeRegion === 'bl' ? BL_REGION_COLOR : `${BL_REGION_COLOR}80`;
+  const nameColor = activeRegion === 'name' ? NAME_REGION_COLOR : `${NAME_REGION_COLOR}4D`;
 
   // Axis-aligned bounding rectangles are more robust than rotated lines.
   // The shape/size tells you exactly what the detector picked.
@@ -187,7 +192,7 @@ function CardDetectionOverlay({
           width: quadBB.width,
           height: quadBB.height,
           borderWidth: 3,
-          borderColor: 'rgba(0,220,220,0.95)',
+          borderColor: NAME_REGION_COLOR,
         }}
       />
 
@@ -233,10 +238,10 @@ function CardDetectionOverlay({
             paddingVertical: 4,
             borderRadius: 4,
             borderLeftWidth: 2,
-            borderLeftColor: 'rgba(255,215,0,0.85)',
+            borderLeftColor: BL_REGION_COLOR,
           }}
         >
-          <Text style={{ color: 'rgba(255,215,0,0.9)', fontSize: 9, fontWeight: '700', letterSpacing: 0.8, marginBottom: 2 }}>
+          <Text style={{ color: BL_REGION_COLOR, fontSize: 9, fontWeight: '700', letterSpacing: 0.8, marginBottom: 2 }}>
             BL CROP
           </Text>
           <Text style={{ color: 'rgba(255,255,255,0.85)', fontSize: 10, fontFamily: 'monospace', lineHeight: 14 }}>
@@ -258,10 +263,10 @@ function CardDetectionOverlay({
             paddingVertical: 4,
             borderRadius: 4,
             borderLeftWidth: 2,
-            borderLeftColor: 'rgba(0,220,220,0.85)',
+            borderLeftColor: NAME_REGION_COLOR,
           }}
         >
-          <Text style={{ color: 'rgba(0,220,220,0.9)', fontSize: 9, fontWeight: '700', letterSpacing: 0.8, marginBottom: 2 }}>
+          <Text style={{ color: NAME_REGION_COLOR, fontSize: 9, fontWeight: '700', letterSpacing: 0.8, marginBottom: 2 }}>
             NAME CROP
           </Text>
           <Text style={{ color: 'rgba(255,255,255,0.85)', fontSize: 10, fontFamily: 'monospace', lineHeight: 14 }}>
@@ -408,6 +413,7 @@ export default function ScanScreen() {
   const device = useCameraDevice('back');
   const { hasPermission, requestPermission } = useCameraPermission();
   const { width: winW, height: winH } = useWindowDimensions();
+  const insets = useSafeAreaInsets();
 
   const [phase, setPhase] = useState<ScanPhase>({ status: 'idle' });
   const [scanStrategy, setScanStrategy] = useState<'set_number' | 'name' | null>(null);
@@ -478,7 +484,7 @@ export default function ScanScreen() {
       setBlText(null);
       setParsedInfo(null);
       setQueryInfo(null);
-      const photo = await cameraRef.current.takePhoto({ qualityPrioritization: 'speed' });
+      const photo = await cameraRef.current.takePhoto();
       // vision-camera returns `path` with or without `file://` depending on platform/version.
       const uri = photo.path.startsWith('file://') ? photo.path : `file://${photo.path}`;
 
@@ -710,7 +716,7 @@ export default function ScanScreen() {
         />
       )}
       {statusLabel !== null && (
-        <View style={styles.statusBadge}>
+        <View style={[styles.statusBadge, { top: insets.top + spacing.sm }]}>
           <Text style={styles.statusText}>{statusLabel}</Text>
         </View>
       )}
@@ -728,7 +734,8 @@ export default function ScanScreen() {
 
       {successCard !== null && (
         <View style={scanStyles.successBadge} pointerEvents="none">
-          <Text style={scanStyles.successText}>✓ {successCard}</Text>
+          <Icon name="check" size={16} color="#fff" strokeWidth={3} />
+          <Text style={scanStyles.successText}>{successCard}</Text>
         </View>
       )}
 
@@ -736,13 +743,18 @@ export default function ScanScreen() {
       <TouchableOpacity
         style={[
           scanStyles.recentBtn,
+          { top: insets.top + spacing.sm },
           recentScans.length === 0 && scanStyles.recentBtnDisabled,
         ]}
         onPress={panelOpen ? closePanel : openPanel}
         disabled={recentScans.length === 0}
+        hitSlop={HIT_SLOP_8}
+        accessibilityRole="button"
+        accessibilityLabel={`Recent scans${recentScans.length ? `, ${recentScans.length}` : ''}`}
+        accessibilityState={{ disabled: recentScans.length === 0, expanded: panelOpen }}
         activeOpacity={0.75}
       >
-        <Text style={scanStyles.recentBtnIcon}>⏱</Text>
+        <Icon name="clock" size={20} color="#fff" />
         {recentScans.length > 0 && (
           <View style={scanStyles.recentBadge}>
             <Text style={scanStyles.recentBadgeText}>{recentScans.length}</Text>
@@ -755,6 +767,7 @@ export default function ScanScreen() {
         style={[
           scanStyles.panel,
           {
+            top: insets.top + spacing.sm + MIN_TOUCH + spacing.sm,
             height: panelHeightAnim,
             opacity: panelHeightAnim.interpolate({
               inputRange: [0, 1],
@@ -811,6 +824,7 @@ export default function ScanScreen() {
               isActive={!pickedImageUri}
               frameProcessor={frameProcessor}
               photo={true}
+              photoQualityBalance="speed"
               pixelFormat="yuv"
             />
             {cameraOverlay}
@@ -909,7 +923,8 @@ const styles = StyleSheet.create({
   },
 
   statusBadge: {
-    marginTop: 20,
+    position: 'absolute',
+    alignSelf: 'center',
     backgroundColor: 'rgba(0,0,0,0.55)',
     paddingHorizontal: 14,
     paddingVertical: 7,
@@ -986,6 +1001,9 @@ const scanStyles = StyleSheet.create({
     top: 12,
     alignSelf: 'center',
     zIndex: 100,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
     backgroundColor: 'rgba(30,180,100,0.92)',
     paddingHorizontal: 18,
     paddingVertical: 10,
@@ -1004,12 +1022,11 @@ const scanStyles = StyleSheet.create({
   },
   recentBtn: {
     position: 'absolute',
-    top: 25,
-    right: 16,
+    right: spacing.lg,
     zIndex: 50,
-    width: 44,
-    height: 44,
-    borderRadius: 22,
+    width: MIN_TOUCH,
+    height: MIN_TOUCH,
+    borderRadius: MIN_TOUCH / 2,
     backgroundColor: 'rgba(0,0,0,0.65)',
     borderWidth: StyleSheet.hairlineWidth,
     borderColor: 'rgba(255,255,255,0.2)',
@@ -1018,9 +1035,6 @@ const scanStyles = StyleSheet.create({
   },
   recentBtnDisabled: {
     opacity: 0.35,
-  },
-  recentBtnIcon: {
-    fontSize: 20,
   },
   recentBadge: {
     position: 'absolute',
@@ -1041,9 +1055,8 @@ const scanStyles = StyleSheet.create({
   },
   panel: {
     position: 'absolute',
-    top: 77,
-    left: 12,
-    right: 12,
+    left: spacing.md,
+    right: spacing.md,
     zIndex: 49,
     backgroundColor: 'rgba(0,0,0,0.77)',
     borderRadius: 12,

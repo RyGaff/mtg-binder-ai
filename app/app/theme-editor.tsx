@@ -9,9 +9,15 @@ import {
 } from 'react-native';
 import { useRouter, useLocalSearchParams } from 'expo-router';
 import { useStore } from '../src/store/useStore';
-import { useTheme } from '../src/theme/useTheme';
+import { isDarkTheme, useKeyboardAppearance, useTheme } from '../src/theme/useTheme';
 import { themes, type CustomTheme, type CustomThemeName } from '../src/theme/themes';
 import { swatches } from '../src/theme/swatches';
+import { Icon } from '../src/components/icons/Icon';
+
+// Per-swatch contrast: pick the check color so it's readable on the swatch's bg.
+function checkColorFor(hex: string): string {
+  return isDarkTheme({ bg: hex } as never) ? '#ffffff' : '#000000';
+}
 
 type TokenKey = 'bg' | 'surface' | 'surfaceAlt' | 'border' | 'text' | 'textSecondary' | 'accent';
 
@@ -30,7 +36,12 @@ type DraftColors = Record<TokenKey, string>;
 export default function ThemeEditorScreen() {
   const router = useRouter();
   const t = useTheme();
-  const { setCustomTheme, deleteCustomTheme, setTheme, customThemes, theme } = useStore();
+  const keyboardAppearance = useKeyboardAppearance();
+  const setCustomTheme = useStore((s) => s.setCustomTheme);
+  const deleteCustomTheme = useStore((s) => s.deleteCustomTheme);
+  const setTheme = useStore((s) => s.setTheme);
+  const customThemes = useStore((s) => s.customThemes);
+  const theme = useStore((s) => s.theme);
   const { slot: slotParam, mode } = useLocalSearchParams<{ slot: string; mode: 'new' | 'edit' }>();
   const slotNum = Number(slotParam);
   const isValidSlot = Number.isInteger(slotNum) && slotNum >= 0 && slotNum <= 2;
@@ -69,7 +80,8 @@ export default function ThemeEditorScreen() {
   };
 
   const handleSave = () => {
-    const custom: CustomTheme = { name: customName, label, ...colors };
+    // Inherit shared (non-token) fields like foilAccent/danger/success from the dark base.
+    const custom: CustomTheme = { ...themes.dark, name: customName, label, ...colors };
     setCustomTheme(slot, custom);
     if (mode === 'new' || theme === customName) {
       setTheme(customName);
@@ -92,7 +104,7 @@ export default function ThemeEditorScreen() {
         accessibilityLabel="Close without saving"
         accessibilityRole="button"
       >
-        <Text style={[styles.closeBtnText, { color: t.textSecondary }]}>✕</Text>
+        <Icon name="close" size={20} color={t.textSecondary} />
       </TouchableOpacity>
 
       <Text style={[styles.screenTitle, { color: t.text }]}>
@@ -115,6 +127,7 @@ export default function ThemeEditorScreen() {
           value={label}
           onChangeText={setLabel}
           maxLength={20}
+          keyboardAppearance={keyboardAppearance}
           returnKeyType="done"
         />
 
@@ -142,10 +155,12 @@ export default function ThemeEditorScreen() {
                         key={hex}
                         style={[styles.swatchCell, { backgroundColor: hex }]}
                         onPress={() => setColor(key, hex)}
+                        accessibilityRole="button"
+                        accessibilityState={{ selected: isActive }}
                         accessibilityLabel={hex}
                       >
                         {isActive && (
-                          <Text style={styles.swatchCheck}>✓</Text>
+                          <Icon name="check" size={20} color={checkColorFor(hex)} strokeWidth={3} />
                         )}
                       </TouchableOpacity>
                     );
@@ -191,7 +206,6 @@ export default function ThemeEditorScreen() {
 const styles = StyleSheet.create({
   screen: { flex: 1, paddingTop: 60, paddingHorizontal: 20 },
   closeBtn: { position: 'absolute', top: 16, right: 16, padding: 8, zIndex: 10 },
-  closeBtnText: { fontSize: 18 },
   screenTitle: { fontSize: 22, fontWeight: '700', marginBottom: 20 },
 
   preview: {
@@ -230,13 +244,13 @@ const styles = StyleSheet.create({
     marginBottom: 4,
   },
   swatchCell: {
-    width: 36,
-    height: 36,
+    width: 44,
+    height: 44,
     borderRadius: 8,
     alignItems: 'center',
     justifyContent: 'center',
   },
-  swatchCheck: { color: '#ffffff', fontSize: 16, fontWeight: '700', textShadowColor: '#000', textShadowRadius: 2, textShadowOffset: { width: 0, height: 1 } },
+  swatchCheck: { fontSize: 16, fontWeight: '700' },
 
   saveBtn: {
     borderRadius: 12,

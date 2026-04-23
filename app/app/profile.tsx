@@ -10,6 +10,8 @@ import { useStore } from '../src/store/useStore';
 import { useTheme } from '../src/theme/useTheme';
 import { getCollectionTotalValue, getFoilCount, getTotalCardCount } from '../src/db/collection';
 import type { ThemeName } from '../src/theme/themes';
+import type { SearchViewMode, SearchGridCols } from '../src/store/useStore';
+import { Icon } from '../src/components/icons/Icon';
 
 const BUILT_IN_THEMES: { name: ThemeName; label: string }[] = [
   { name: 'dark', label: 'Dark' },
@@ -17,11 +19,24 @@ const BUILT_IN_THEMES: { name: ThemeName; label: string }[] = [
   { name: 'amoled', label: 'AMOLED' },
 ];
 
+const VIEW_MODES: { mode: SearchViewMode; label: string }[] = [
+  { mode: 'list', label: 'List' },
+  { mode: 'grid', label: 'Grid' },
+];
+
+const GRID_COL_OPTIONS: SearchGridCols[] = [1, 2, 3, 4, 5];
+
 const FEEDBACK_EMAIL = 'lotusfieldmtg@gmail.com';
 
 export default function ProfileScreen() {
   const router = useRouter();
-  const { theme, setTheme, customThemes } = useStore();
+  const theme = useStore((s) => s.theme);
+  const setTheme = useStore((s) => s.setTheme);
+  const customThemes = useStore((s) => s.customThemes);
+  const searchViewMode = useStore((s) => s.searchViewMode);
+  const setSearchViewMode = useStore((s) => s.setSearchViewMode);
+  const searchGridCols = useStore((s) => s.searchGridCols);
+  const setSearchGridCols = useStore((s) => s.setSearchGridCols);
   const t = useTheme();
 
   const { data: totalValue = 0 } = useQuery({
@@ -44,10 +59,11 @@ export default function ProfileScreen() {
       <TouchableOpacity
         style={styles.closeBtn}
         onPress={() => (router.canGoBack() ? router.back() : router.replace('/'))}
+        hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
         accessibilityLabel="Close"
         accessibilityRole="button"
       >
-        <Text style={[styles.closeBtnText, { color: t.textSecondary }]}>✕</Text>
+        <Icon name="close" size={20} color={t.textSecondary} />
       </TouchableOpacity>
 
       <Text style={[styles.screenTitle, { color: t.text }]}>Profile</Text>
@@ -133,7 +149,7 @@ export default function ProfileScreen() {
                     accessibilityRole="button"
                     accessibilityLabel={`Edit ${custom.label}`}
                   >
-                    <Text style={[styles.editIcon, { color: t.textSecondary }]}>✏️</Text>
+                    <Icon name="pencil" size={14} color={t.textSecondary} />
                   </TouchableOpacity>
                 </View>
               );
@@ -151,25 +167,79 @@ export default function ProfileScreen() {
                 accessibilityRole="button"
                 accessibilityLabel={`Create custom theme ${index + 1}`}
               >
-                <Text style={[styles.themePillText, { color: t.textSecondary }]}>+</Text>
+                <Icon name="plus" size={16} color={t.textSecondary} />
               </TouchableOpacity>
             );
           })}
         </View>
       </View>
 
+      {/* Search view */}
+      <View style={styles.section}>
+        <Text style={[styles.sectionLabel, { color: t.textSecondary }]}>Search view</Text>
+        <View style={[styles.themePills, styles.rowGap]}>
+          {VIEW_MODES.map((v) => {
+            const active = searchViewMode === v.mode;
+            return (
+              <TouchableOpacity
+                key={v.mode}
+                style={[
+                  styles.themePill,
+                  { backgroundColor: t.surface, borderColor: active ? t.accent : t.border },
+                ]}
+                onPress={() => setSearchViewMode(v.mode)}
+                accessibilityRole="button"
+                accessibilityState={{ selected: active }}
+              >
+                <Text style={[styles.themePillText, { color: active ? t.accent : t.textSecondary }]}>
+                  {v.label}
+                </Text>
+              </TouchableOpacity>
+            );
+          })}
+        </View>
+        {searchViewMode === 'grid' && (
+          <View style={styles.themePills}>
+            {GRID_COL_OPTIONS.map((n) => {
+              const active = searchGridCols === n;
+              return (
+                <TouchableOpacity
+                  key={n}
+                  style={[
+                    styles.themePill,
+                    { backgroundColor: t.surface, borderColor: active ? t.accent : t.border },
+                  ]}
+                  onPress={() => setSearchGridCols(n)}
+                  accessibilityRole="button"
+                  accessibilityState={{ selected: active }}
+                  accessibilityLabel={`${n} cards per row`}
+                >
+                  <Text style={[styles.themePillText, { color: active ? t.accent : t.textSecondary }]}>
+                    {n}
+                  </Text>
+                </TouchableOpacity>
+              );
+            })}
+          </View>
+        )}
+      </View>
+
       {/* Feedback */}
       <View style={styles.section}>
-        <Text style={[styles.sectionLabel, { color: t.textSecondary }]}>Feedback</Text>
+        <Text style={[styles.sectionLabel, { color: t.textSecondary }]}>Feedback (TestFlight)</Text>
         <View style={[styles.feedbackRow, { backgroundColor: t.surface }]}>
-          <Text selectable style={[styles.feedbackText, { color: t.text }]}>
-            Send feedback to{' '}
-            <Text
-              selectable
-              style={{ color: t.accent, fontWeight: '600' }}
-            >
-              {FEEDBACK_EMAIL}
-            </Text>
+          <Text style={[styles.feedbackText, { color: t.text }]}>
+            <Text style={{ fontWeight: '600' }}>Screenshot:</Text> take a screenshot anywhere in the app,
+            then tap <Text style={{ fontWeight: '600' }}>Share Beta Feedback</Text> in the preview. Annotate
+            and send — it goes straight to the dev.
+            {'\n\n'}
+            <Text style={{ fontWeight: '600' }}>Crashes:</Text> auto-sent after you reopen the app. Tap
+            <Text style={{ fontWeight: '600' }}> Share</Text> when prompted to include details.
+            {'\n\n'}
+            <Text style={{ fontWeight: '600' }}>Other issues:</Text> open the TestFlight app → MTG Binder AI →
+            <Text style={{ fontWeight: '600' }}> Send Beta Feedback</Text>.
+            {'\n\n'}
+            Prefer email? <Text selectable style={{ color: t.accent, fontWeight: '600' }}>{FEEDBACK_EMAIL}</Text>
           </Text>
         </View>
       </View>
@@ -179,8 +249,7 @@ export default function ProfileScreen() {
 
 const styles = StyleSheet.create({
   screen: { flex: 1, padding: 24, paddingTop: 60 },
-  closeBtn: { position: 'absolute', top: 16, right: 16, padding: 8 },
-  closeBtnText: { fontSize: 18 },
+  closeBtn: { position: 'absolute', top: 16, right: 16, padding: 8, minWidth: 44, minHeight: 44, alignItems: 'flex-end', justifyContent: 'center' },
   screenTitle: { fontSize: 22, fontWeight: '700', marginBottom: 32 },
 
   section: { marginBottom: 28 },
@@ -204,10 +273,12 @@ const styles = StyleSheet.create({
   statLabel: { fontSize: 12, marginTop: 4 },
   statDivider: { width: 1, height: 32 },
 
-  themePills: { flexDirection: 'row', gap: 8 },
+  themePills: { flexDirection: 'row', flexWrap: 'wrap', gap: 8 },
   rowGap: { marginBottom: 8 },
   themePill: {
-    flex: 1,
+    flexGrow: 1,
+    flexBasis: 80,
+    minHeight: 44,
     paddingVertical: 10,
     paddingHorizontal: 8,
     borderRadius: 10,
@@ -219,7 +290,6 @@ const styles = StyleSheet.create({
   },
   themePillEmpty: { borderStyle: 'dashed' },
   themePillText: { fontWeight: '600', fontSize: 13 },
-  editIcon: { fontSize: 12 },
 
   feedbackRow: {
     borderRadius: 10,
@@ -229,5 +299,4 @@ const styles = StyleSheet.create({
     alignItems: 'center',
   },
   feedbackText: { fontSize: 14 },
-  feedbackArrow: { fontSize: 18 },
 });

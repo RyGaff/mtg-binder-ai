@@ -1,12 +1,13 @@
-import { View, Text, ScrollView, TouchableOpacity, ActivityIndicator, Alert, StyleSheet } from 'react-native';
+import { View, Text, ScrollView, TouchableOpacity, ActivityIndicator, Alert, Linking, StyleSheet } from 'react-native';
 import { useRouter } from 'expo-router';
 import { useSynergyFromCard } from '../api/hooks';
+import { useStore } from '../store/useStore';
 import { useTheme } from '../theme/useTheme';
 import { PressableCardImage } from './PressableCardImage';
 import { fetchCardByName } from '../api/scryfall';
 import { upsertCard } from '../db/cards';
 import type { CachedCard } from '../db/cards';
-import type { SynergyEntry } from '../api/edhrec';
+import { slugify, isCommanderEligible, type SynergyEntry } from '../api/edhrec';
 
 type Props = { card: CachedCard };
 
@@ -20,22 +21,33 @@ export function Synergy({ card }: Props) {
 
   const openEntry = async (entry: SynergyEntry) => {
     if (entry.scryfall_id) {
-      router.push(`/card/${entry.scryfall_id}`);
+      useStore.getState().markInternalTrailNav();
+      router.replace(`/card/${entry.scryfall_id}`);
       return;
     }
     try {
       const resolved = await fetchCardByName(entry.name);
       upsertCard(resolved);
-      router.push(`/card/${resolved.scryfall_id}`);
+      useStore.getState().markInternalTrailNav();
+      router.replace(`/card/${resolved.scryfall_id}`);
     } catch (err) {
       console.warn('[synergy] openEntry failed', entry.name, err);
       Alert.alert('Could not open card', `${entry.name}: ${String(err)}`);
     }
   };
 
+  const edhrecUrl = `https://edhrec.com/${isCommanderEligible(card) ? 'commanders' : 'cards'}/${slugify(card.name)}`;
+
   return (
     <View style={[styles.container, { backgroundColor: theme.surface }]}>
-      <Text style={[styles.heading, { color: theme.accent }]}>{heading}</Text>
+      <View style={styles.headerRow}>
+        <Text style={[styles.heading, { color: theme.accent }]}>{heading}</Text>
+        <TouchableOpacity onPress={() => Linking.openURL(edhrecUrl).catch((e) => Alert.alert('Could not open link', String(e)))} hitSlop={8}>
+          <Text style={[styles.attribution, { color: theme.textSecondary }]}>
+            Data from <Text style={{ color: theme.accent }}>EDHREC</Text>
+          </Text>
+        </TouchableOpacity>
+      </View>
 
       {isLoading ? (
         <ActivityIndicator color={theme.accent} style={styles.loader} />
@@ -81,7 +93,14 @@ export function Synergy({ card }: Props) {
 
 const styles = StyleSheet.create({
   container: { borderRadius: 8, padding: 12, marginTop: 12 },
-  heading: { fontWeight: '700', marginBottom: 8, fontSize: 13 },
+  headerRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: 8,
+  },
+  heading: { fontWeight: '700', fontSize: 13 },
+  attribution: { fontSize: 10 },
   loader: { marginVertical: 12 },
   strip: { gap: 8 },
   cardItem: { width: 100, alignItems: 'center' },

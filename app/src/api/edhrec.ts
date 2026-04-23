@@ -80,9 +80,9 @@ export function isCommanderEligible(card: CachedCard): boolean {
   return /can be your commander/i.test(card.oracle_text);
 }
 
-async function fetchJson(url: string): Promise<EdhrecPage | null> {
+async function fetchJson(url: string, signal?: AbortSignal): Promise<EdhrecPage | null> {
   try {
-    const res = await fetch(url);
+    const res = await fetch(url, { signal });
     if (!res.ok) return null;
     return (await res.json()) as EdhrecPage;
   } catch {
@@ -126,7 +126,7 @@ function extractEntries(data: EdhrecPage | null, metric: SynergyMetric): Synergy
   return out;
 }
 
-export async function fetchEdhrecSynergies(card: CachedCard): Promise<SynergyResult> {
+export async function fetchEdhrecSynergies(card: CachedCard, signal?: AbortSignal): Promise<SynergyResult> {
   const slug = slugify(card.name);
   const commander = isCommanderEligible(card);
   const metric: SynergyMetric = commander ? 'synergy' : 'inclusion';
@@ -134,7 +134,7 @@ export async function fetchEdhrecSynergies(card: CachedCard): Promise<SynergyRes
     ? `${BASE}/commanders/${slug}.json`
     : `${BASE}/cards/${slug}.json`;
 
-  const data = await fetchJson(url);
+  const data = await fetchJson(url, signal);
   const entries = extractEntries(data, metric)
     .sort((a, b) => b.score - a.score)
     .slice(0, 30);

@@ -1,6 +1,7 @@
 import { Modal, View, TouchableOpacity, Text, StyleSheet } from 'react-native';
 import { useState } from 'react';
 import { useTheme } from '../theme/useTheme';
+import { spacing, radius, font, MIN_TOUCH, HIT_SLOP_8 } from '../theme/themes';
 
 export type ColorFilter = 'W' | 'U' | 'B' | 'R' | 'G' | 'C' | 'all';
 
@@ -26,6 +27,9 @@ export function ColorFilter({ active, onChange }: Props) {
       <TouchableOpacity
         style={[styles.btn, { backgroundColor: isFiltered ? theme.accent : theme.surfaceAlt }]}
         onPress={() => setOpen(true)}
+        hitSlop={HIT_SLOP_8}
+        accessibilityRole="button"
+        accessibilityLabel={isFiltered ? `Filter color ${active}` : 'Open color filter'}
       >
         <Text style={[styles.btnText, { color: isFiltered ? theme.text : theme.textSecondary }]}>
           {isFiltered ? `Filter: ${active}` : 'Filters'}
@@ -42,6 +46,9 @@ export function ColorFilter({ active, onChange }: Props) {
                   key={key}
                   style={[styles.chip, { backgroundColor: active === key ? theme.accent : theme.surfaceAlt }]}
                   onPress={() => { onChange(key); setOpen(false); }}
+                  accessibilityRole="button"
+                  accessibilityState={{ selected: active === key }}
+                  accessibilityLabel={label}
                 >
                   <Text style={[styles.chipText, { color: active === key ? theme.text : theme.textSecondary }]}>
                     {label}
@@ -57,12 +64,27 @@ export function ColorFilter({ active, onChange }: Props) {
 }
 
 const styles = StyleSheet.create({
-  btn: { alignSelf: 'flex-start', paddingHorizontal: 14, paddingVertical: 8, borderRadius: 8 },
+  btn: {
+    alignSelf: 'flex-start',
+    paddingHorizontal: spacing.lg,
+    paddingVertical: spacing.sm + 2,
+    borderRadius: radius.md,
+    minHeight: MIN_TOUCH,
+    justifyContent: 'center',
+  },
   btnText: { fontSize: 13, fontWeight: '600' },
   backdrop: { flex: 1, backgroundColor: 'rgba(0,0,0,0.6)', justifyContent: 'flex-end' },
-  sheet: { borderTopLeftRadius: 16, borderTopRightRadius: 16, padding: 24, paddingBottom: 40 },
-  title: { fontSize: 15, fontWeight: '700', marginBottom: 16 },
-  grid: { flexDirection: 'row', flexWrap: 'wrap', gap: 10 },
-  chip: { paddingHorizontal: 20, paddingVertical: 8, borderRadius: 12 },
-  chipText: { fontSize: 14, fontWeight: '600' },
+  sheet: { borderTopLeftRadius: radius.xl, borderTopRightRadius: radius.xl, padding: spacing.xl, paddingBottom: 40 },
+  title: { fontSize: font.subhead, fontWeight: '700', marginBottom: spacing.lg },
+  grid: { flexDirection: 'row', flexWrap: 'wrap', gap: spacing.sm + 2, justifyContent: 'center' },
+  chip: {
+    minWidth: MIN_TOUCH,
+    minHeight: MIN_TOUCH,
+    paddingHorizontal: spacing.lg,
+    paddingVertical: spacing.sm + 2,
+    borderRadius: radius.lg,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  chipText: { fontSize: font.body, fontWeight: '600' },
 });

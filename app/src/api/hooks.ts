@@ -1,28 +1,40 @@
-import { useQuery } from '@tanstack/react-query';
+import { useQuery, keepPreviousData } from '@tanstack/react-query';
 import { fetchCardById, searchScryfall, fetchPrintings } from './scryfall';
 import type { PrintingSummary } from './scryfall';
-import { getCardById, upsertCard, isCardStale, searchCardsLocal } from '../db/cards';
+import { getCardById, getCardsByIds, upsertCard, upsertCards, isCardStale, searchCardsLocal } from '../db/cards';
 import type { CachedCard } from '../db/cards';
 import { getEmbeddingMap } from '../embeddings/parser';
 import { similaritySearch } from '../embeddings/similarity';
 import { useStore } from '../store/useStore';
 import { fetchEdhrecSynergies, type SynergyResult } from './edhrec';
 
+const DAY_MS = 24 * 60 * 60 * 1000;
+const WEEK_MS = 7 * DAY_MS;
+
 /** Returns a card, using SQLite cache and falling back to Scryfall. */
 export function useCard(scryfallId: string) {
   return useQuery({
     queryKey: ['card', scryfallId],
-    queryFn: async () => {
+    queryFn: async ({ signal }) => {
       const cached = getCardById(scryfallId);
       if (cached && !isCardStale(cached)) return cached;
-      const fresh = await fetchCardById(scryfallId);
+      const fresh = await fetchCardById(scryfallId, signal);
       upsertCard(fresh);
       return fresh;
     },
-    staleTime: 24 * 60 * 60 * 1000,
+    enabled: !!scryfallId,
+    staleTime: DAY_MS,
+    gcTime: WEEK_MS,
     initialData: () => {
+      if (!scryfallId) return undefined;
       const cached = getCardById(scryfallId);
       return cached && !isCardStale(cached) ? cached : undefined;
+    },
+    // Critical: mark initial data as freshly-loaded so RQ doesn't refetch on mount.
+    initialDataUpdatedAt: () => {
+      if (!scryfallId) return undefined;
+      const cached = getCardById(scryfallId);
+      return cached && !isCardStale(cached) ? cached.cached_at : undefined;
     },
   });
 }
@@ -31,10 +43,10 @@ export function useCard(scryfallId: string) {
 export function useScryfallSearch(query: string) {
   return useQuery({
     queryKey: ['search', query],
-    queryFn: async () => {
+    queryFn: async ({ signal }) => {
       try {
-        const results = await searchScryfall(query);
-        results.forEach(upsertCard);
+        const results = await searchScryfall(query, 1, signal);
+        upsertCards(results);
         return results;
       } catch {
         return searchCardsLocal(query);
@@ -42,19 +54,23 @@ export function useScryfallSearch(query: string) {
     },
     enabled: query.length > 1,
     staleTime: 5 * 60 * 1000,
+    gcTime: 30 * 60 * 1000,
+    placeholderData: keepPreviousData,
   });
 }
 
 /** Pull synergy partners from EDHREC (co-occurrence data across public deck lists). */
 export function useSynergyFromCard(seed: CachedCard | null) {
+  const seedId = seed?.scryfall_id ?? '';
   return useQuery<SynergyResult>({
-    queryKey: ['synergy', seed?.scryfall_id ?? ''],
-    queryFn: () =>
+    queryKey: ['synergy', seedId],
+    queryFn: ({ signal }) =>
       seed
-        ? fetchEdhrecSynergies(seed)
+        ? fetchEdhrecSynergies(seed, signal)
         : Promise.resolve({ metric: 'synergy' as const, entries: [] }),
     enabled: !!seed,
-    staleTime: 24 * 60 * 60 * 1000,
+    staleTime: DAY_MS,
+    gcTime: WEEK_MS,
     retry: false,
   });
 }
@@ -145,7 +161,7 @@ export function useSimilarSearch(card: CachedCard) {
 
   return useQuery({
     queryKey: ['similar-embedding', card.scryfall_id],
-    queryFn: async () => {
+    queryFn: async ({ signal }) => {
       const { byId, byName } = await getEmbeddingMap();
       console.log('[similar] map sizes — byId:', byId.size, 'byName:', byName.size);
       // The embedding was built from oracle-cards (one printing per unique card).
@@ -156,21 +172,28 @@ export function useSimilarSearch(card: CachedCard) {
       console.log('[similar] card:', card.name, 'scryfall_id:', card.scryfall_id, 'embeddingId:', embeddingId);
       const results = embeddingId ? similaritySearch(embeddingId, byId, 20) : [];
       console.log('[similar] results count:', results.length);
-      const settled = await Promise.allSettled(
-        results.map(async ({ scryfallId }) => {
-          const cached = getCardById(scryfallId);
-          if (cached) return cached;
-          const fresh = await fetchCardById(scryfallId);
-          upsertCard(fresh);
-          return fresh;
-        })
+
+      const ids = results.map((r) => r.scryfallId);
+      const cachedMap = getCardsByIds(ids);
+      const missing = ids.filter((id) => !cachedMap.has(id));
+      const fetched = await Promise.allSettled(
+        missing.map((id) => fetchCardById(id, signal))
       );
-      return settled
-        .filter((r): r is PromiseFulfilledResult<CachedCard> => r.status === 'fulfilled')
-        .map(r => r.value);
+      const fetchedCards: CachedCard[] = [];
+      for (const r of fetched) {
+        if (r.status === 'fulfilled') fetchedCards.push(r.value);
+      }
+      if (fetchedCards.length) upsertCards(fetchedCards);
+      for (const c of fetchedCards) cachedMap.set(c.scryfall_id, c);
+
+      return ids
+        .map((id) => cachedMap.get(id))
+        .filter((c): c is CachedCard => !!c);
     },
-    enabled: embeddingStatus === 'idle',
-    staleTime: 24 * 60 * 60 * 1000,
+    enabled: embeddingStatus === 'idle' && !!card?.scryfall_id,
+    staleTime: DAY_MS,
+    gcTime: WEEK_MS,
+    retry: false,
   });
 }
 
@@ -186,7 +209,9 @@ export function buildPrintingsQueryKey(card: CachedCard): [string, string] {
 export function usePrintings(card: CachedCard) {
   return useQuery({
     queryKey: buildPrintingsQueryKey(card),
-    queryFn: () => fetchPrintings(card.name),
-    staleTime: 30 * 60 * 1000,
+    queryFn: ({ signal }) => fetchPrintings(card.name, signal),
+    enabled: !!card?.name,
+    staleTime: 6 * 60 * 60 * 1000, // 6h — prices drift but printings list rarely changes
+    gcTime: DAY_MS,
   });
 }

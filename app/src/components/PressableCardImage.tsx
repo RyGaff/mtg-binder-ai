@@ -1,5 +1,5 @@
-import { useState } from 'react';
-import { Image, Modal, Pressable, View, StyleSheet, type StyleProp, type ImageStyle } from 'react-native';
+import { memo, useCallback, useState } from 'react';
+import { Image, Modal, Pressable, StyleSheet, type StyleProp, type ImageStyle } from 'react-native';
 
 type Props = {
   uri: string;
@@ -8,26 +8,27 @@ type Props = {
   resizeMode?: 'cover' | 'contain' | 'stretch' | 'center';
 };
 
-export function PressableCardImage({ uri, style, onPress, resizeMode = 'cover' }: Props) {
+function PressableCardImageImpl({ uri, style, onPress, resizeMode = 'cover' }: Props) {
   const [zoomed, setZoomed] = useState(false);
+  const openZoom = useCallback(() => setZoomed(true), []);
+  const closeZoom = useCallback(() => setZoomed(false), []);
 
   return (
     <>
-      <Modal visible={zoomed} transparent animationType="fade">
-        <Pressable style={styles.overlay} onPress={() => setZoomed(false)}>
+      <Modal visible={zoomed} transparent animationType="fade" onRequestClose={closeZoom}>
+        <Pressable style={styles.overlay} onPress={closeZoom}>
           <Image source={{ uri }} style={styles.zoomImage} resizeMode="contain" />
         </Pressable>
       </Modal>
 
-      <Pressable
-        onPress={onPress}
-        onLongPress={() => setZoomed(true)}
-      >
+      <Pressable onPress={onPress} onLongPress={openZoom}>
         <Image source={{ uri }} style={style} resizeMode={resizeMode} />
       </Pressable>
     </>
   );
 }
+
+export const PressableCardImage = memo(PressableCardImageImpl);
 
 const styles = StyleSheet.create({
   overlay: {

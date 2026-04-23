@@ -1,3 +1,4 @@
+import { useMemo } from 'react';
 import { useStore } from '../store/useStore';
 import { themes, type Theme } from './themes';
 
@@ -11,13 +12,16 @@ function hydrate(t: Theme | null | undefined): Theme {
 }
 
 export function useTheme(): Theme {
-  return useStore((s) => {
-    if (s.theme.startsWith('custom-')) {
-      const index = Number(s.theme.split('-')[1]) as 0 | 1 | 2;
-      return hydrate(s.customThemes[index]);
-    }
-    return themes[s.theme as 'dark' | 'light' | 'amoled'] ?? themes.dark;
+  const themeKey = useStore((s) => s.theme);
+  const customTheme = useStore((s) => {
+    if (!s.theme.startsWith('custom-')) return null;
+    const index = Number(s.theme.split('-')[1]) as 0 | 1 | 2;
+    return s.customThemes[index] ?? null;
   });
+  return useMemo(() => {
+    if (themeKey.startsWith('custom-')) return hydrate(customTheme);
+    return themes[themeKey as 'dark' | 'light' | 'amoled'] ?? themes.dark;
+  }, [themeKey, customTheme]);
 }
 
 /** Rough perceived-luminance of a hex color. 0 = black, 255 = white. Returns -1 on bad input. */

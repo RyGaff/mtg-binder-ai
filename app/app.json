@@ -15,7 +15,8 @@
         {
           "cameraPermissionText": "Allow MTG Binder to access your camera to scan cards."
         }
-      ]
+      ],
+      "expo-sharing"
     ],
     "android": {
       "adaptiveIcon": {

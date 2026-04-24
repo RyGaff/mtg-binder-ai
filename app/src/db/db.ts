@@ -10,13 +10,21 @@ export function getDb(): SQLite.SQLiteDatabase {
   return _db;
 }
 
+function addColumnIfMissing(db: SQLite.SQLiteDatabase, table: string, column: string, columnDef: string): void {
+  const cols = db.getAllSync<{ name: string }>(`PRAGMA table_info(${table});`);
+  if (cols.some((c) => c.name === column)) return;
+  db.execSync(`ALTER TABLE ${table} ADD COLUMN ${column} ${columnDef};`);
+}
+
 function initSchema(db: SQLite.SQLiteDatabase): void {
   db.execSync('PRAGMA journal_mode = WAL;');
   db.execSync('PRAGMA foreign_keys = ON;');
-  // Reduces fsync pressure on WAL commits; safe for an app-local cache DB.
-  db.execSync('PRAGMA synchronous = NORMAL;');
+  db.execSync('PRAGMA synchronous = NORMAL;'); // safe for app-local cache DB
   db.execSync('PRAGMA temp_store = MEMORY;');
-  db.execSync('PRAGMA mmap_size = 134217728;'); // 128 MB memory-mapped I/O
+  db.execSync('PRAGMA mmap_size = 134217728;'); // 128 MB mmap
+  addColumnIfMissing(db, 'cards', 'image_uri_back', "TEXT DEFAULT ''");
+  addColumnIfMissing(db, 'cards', 'card_faces', "TEXT DEFAULT '[]'");
+  addColumnIfMissing(db, 'cards', 'all_parts', "TEXT DEFAULT '[]'");
   db.withTransactionSync(() => {
     db.execSync(`
     -- NOTE: do NOT add WITHOUT ROWID — cards_fts joins on cards.rowid
@@ -30,6 +38,9 @@ function initSchema(db: SQLite.SQLiteDatabase): void {
       oracle_text     TEXT DEFAULT '',
       color_identity  TEXT DEFAULT '[]',
       image_uri       TEXT DEFAULT '',
+      image_uri_back  TEXT DEFAULT '',
+      card_faces      TEXT DEFAULT '[]',
+      all_parts       TEXT DEFAULT '[]',
       prices          TEXT DEFAULT '{}',
       keywords        TEXT DEFAULT '[]',
       cached_at       INTEGER NOT NULL
@@ -64,7 +75,7 @@ function initSchema(db: SQLite.SQLiteDatabase): void {
       added_at    INTEGER NOT NULL
     );
 
-    -- Dedupe any pre-existing (scryfall_id, foil, condition) dupes by summing qty into the oldest row.
+    -- Dedupe pre-existing (scryfall_id, foil, condition) dupes by summing qty into the oldest row.
     UPDATE collection_entries AS ce
        SET quantity = (
          SELECT SUM(quantity) FROM collection_entries
@@ -99,18 +110,13 @@ function initSchema(db: SQLite.SQLiteDatabase): void {
     );
 
     -- Covers getCardBySetNumber (hot path on import + scan confirmation).
-    CREATE INDEX IF NOT EXISTS cards_set_number_idx
-      ON cards (set_code, collector_number);
+    CREATE INDEX IF NOT EXISTS cards_set_number_idx ON cards (set_code, collector_number);
 
     -- Covers ORDER BY c.name on the binder grid without a sort step.
-    CREATE INDEX IF NOT EXISTS cards_name_idx
-      ON cards (name);
+    CREATE INDEX IF NOT EXISTS cards_name_idx ON cards (name);
 
-    -- Speeds up FK-driven joins from deck_cards -> cards on scryfall_id
-    -- (PK is (deck_id, scryfall_id, board), so lookups by scryfall_id alone
-    -- were doing an index-range scan over the whole deck_cards table).
-    CREATE INDEX IF NOT EXISTS deck_cards_scryfall_idx
-      ON deck_cards (scryfall_id);
+    -- Speeds up FK-driven joins from deck_cards -> cards on scryfall_id.
+    CREATE INDEX IF NOT EXISTS deck_cards_scryfall_idx ON deck_cards (scryfall_id);
   `);
   });
 }

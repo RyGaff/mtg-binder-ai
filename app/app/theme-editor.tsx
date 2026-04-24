@@ -15,9 +15,7 @@ import { swatches } from '../src/theme/swatches';
 import { Icon } from '../src/components/icons/Icon';
 
 // Per-swatch contrast: pick the check color so it's readable on the swatch's bg.
-function checkColorFor(hex: string): string {
-  return isDarkTheme({ bg: hex } as never) ? '#ffffff' : '#000000';
-}
+const checkColorFor = (hex: string) => (isDarkTheme({ bg: hex } as never) ? '#ffffff' : '#000000');
 
 type TokenKey = 'bg' | 'surface' | 'surfaceAlt' | 'border' | 'text' | 'textSecondary' | 'accent';
 
@@ -30,6 +28,8 @@ const TOKEN_ROWS: { key: TokenKey; label: string; palette: keyof typeof swatches
   { key: 'textSecondary', label: 'Secondary Text', palette: 'textSecondary' },
   { key: 'accent', label: 'Accent', palette: 'accent' },
 ];
+
+const PREVIEW_KEYS: TokenKey[] = ['bg', 'surface', 'surfaceAlt', 'border', 'accent'];
 
 type DraftColors = Record<TokenKey, string>;
 
@@ -63,44 +63,38 @@ export default function ThemeEditorScreen() {
   });
   const [expandedToken, setExpandedToken] = useState<TokenKey | null>(null);
 
+  const close = () => (router.canGoBack() ? router.back() : router.replace('/'));
+
   useEffect(() => {
-    if (!isValidSlot) {
-      if (router.canGoBack()) router.back(); else router.replace('/');
-    }
+    if (!isValidSlot) close();
   }, [isValidSlot]);
 
   if (!isValidSlot) return null;
 
-  const setColor = (key: TokenKey, value: string) => {
-    setColors((prev) => ({ ...prev, [key]: value }));
-  };
-
-  const toggleExpanded = (key: TokenKey) => {
-    setExpandedToken((prev) => (prev === key ? null : key));
-  };
+  const setColor = (key: TokenKey, value: string) => setColors((prev) => ({ ...prev, [key]: value }));
+  const toggleExpanded = (key: TokenKey) => setExpandedToken((prev) => (prev === key ? null : key));
 
   const handleSave = () => {
     // Inherit shared (non-token) fields like foilAccent/danger/success from the dark base.
     const custom: CustomTheme = { ...themes.dark, name: customName, label, ...colors };
     setCustomTheme(slot, custom);
-    if (mode === 'new' || theme === customName) {
-      setTheme(customName);
-    }
-    if (router.canGoBack()) router.back(); else router.replace('/');
+    if (mode === 'new' || theme === customName) setTheme(customName);
+    close();
   };
 
   const handleDelete = () => {
     if (theme === customName) setTheme('dark');
     deleteCustomTheme(slot);
-    if (router.canGoBack()) router.back(); else router.replace('/');
+    close();
   };
+
+  const canSave = label.trim().length > 0;
 
   return (
     <View style={[styles.screen, { backgroundColor: t.bg }]}>
-      {/* Close button */}
       <TouchableOpacity
         style={styles.closeBtn}
-        onPress={() => (router.canGoBack() ? router.back() : router.replace('/'))}
+        onPress={close}
         accessibilityLabel="Close without saving"
         accessibilityRole="button"
       >
@@ -112,14 +106,12 @@ export default function ThemeEditorScreen() {
       </Text>
 
       <ScrollView showsVerticalScrollIndicator={false}>
-        {/* Live preview strip */}
         <View style={styles.preview}>
-          {(['bg', 'surface', 'surfaceAlt', 'border', 'accent'] as TokenKey[]).map((key) => (
+          {PREVIEW_KEYS.map((key) => (
             <View key={key} style={[styles.previewSegment, { backgroundColor: colors[key] }]} />
           ))}
         </View>
 
-        {/* Name field */}
         <TextInput
           style={[styles.nameInput, { backgroundColor: t.surface, color: t.text, borderColor: t.border }]}
           placeholder="Theme name"
@@ -131,7 +123,6 @@ export default function ThemeEditorScreen() {
           returnKeyType="done"
         />
 
-        {/* Token rows */}
         {TOKEN_ROWS.map(({ key, label: tokenLabel, palette }) => {
           const isOpen = expandedToken === key;
           const currentColor = colors[key];
@@ -159,9 +150,7 @@ export default function ThemeEditorScreen() {
                         accessibilityState={{ selected: isActive }}
                         accessibilityLabel={hex}
                       >
-                        {isActive && (
-                          <Icon name="check" size={20} color={checkColorFor(hex)} strokeWidth={3} />
-                        )}
+                        {isActive && <Icon name="check" size={20} color={checkColorFor(hex)} strokeWidth={3} />}
                       </TouchableOpacity>
                     );
                   })}
@@ -171,21 +160,16 @@ export default function ThemeEditorScreen() {
           );
         })}
 
-        {/* Save */}
         <TouchableOpacity
-          style={[
-            styles.saveBtn,
-            { backgroundColor: label.trim().length > 0 ? t.accent : t.border },
-          ]}
+          style={[styles.saveBtn, { backgroundColor: canSave ? t.accent : t.border }]}
           onPress={handleSave}
-          disabled={label.trim().length === 0}
+          disabled={!canSave}
           accessibilityRole="button"
           accessibilityLabel="Save theme"
         >
           <Text style={[styles.saveBtnText, { color: t.text }]}>Save</Text>
         </TouchableOpacity>
 
-        {/* Delete (edit mode only) */}
         {mode === 'edit' && (
           <TouchableOpacity
             style={styles.deleteBtn}
@@ -207,24 +191,9 @@ const styles = StyleSheet.create({
   screen: { flex: 1, paddingTop: 60, paddingHorizontal: 20 },
   closeBtn: { position: 'absolute', top: 16, right: 16, padding: 8, zIndex: 10 },
   screenTitle: { fontSize: 22, fontWeight: '700', marginBottom: 20 },
-
-  preview: {
-    flexDirection: 'row',
-    height: 48,
-    borderRadius: 10,
-    overflow: 'hidden',
-    marginBottom: 20,
-  },
+  preview: { flexDirection: 'row', height: 48, borderRadius: 10, overflow: 'hidden', marginBottom: 20 },
   previewSegment: { flex: 1 },
-
-  nameInput: {
-    borderRadius: 10,
-    padding: 14,
-    fontSize: 16,
-    marginBottom: 20,
-    borderWidth: 1,
-  },
-
+  nameInput: { borderRadius: 10, padding: 14, fontSize: 16, marginBottom: 20, borderWidth: 1 },
   tokenRow: {
     flexDirection: 'row',
     justifyContent: 'space-between',
@@ -234,7 +203,6 @@ const styles = StyleSheet.create({
   },
   tokenLabel: { fontSize: 15 },
   colorSwatch: { width: 28, height: 28, borderRadius: 14, borderWidth: 1 },
-
   swatchGrid: {
     flexDirection: 'row',
     flexWrap: 'wrap',
@@ -243,26 +211,11 @@ const styles = StyleSheet.create({
     borderRadius: 8,
     marginBottom: 4,
   },
-  swatchCell: {
-    width: 44,
-    height: 44,
-    borderRadius: 8,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
+  swatchCell: { width: 44, height: 44, borderRadius: 8, alignItems: 'center', justifyContent: 'center' },
   swatchCheck: { fontSize: 16, fontWeight: '700' },
-
-  saveBtn: {
-    borderRadius: 12,
-    padding: 16,
-    alignItems: 'center',
-    marginTop: 24,
-    marginBottom: 12,
-  },
+  saveBtn: { borderRadius: 12, padding: 16, alignItems: 'center', marginTop: 24, marginBottom: 12 },
   saveBtnText: { fontSize: 16, fontWeight: '700' },
-
   deleteBtn: { alignItems: 'center', paddingVertical: 12 },
   deleteBtnText: { fontSize: 14 },
-
   bottomPad: { height: 40 },
 });

@@ -17,33 +17,26 @@ export function AdditionalPrints({ card }: Props) {
 
   if (!isLoading && !isError && printings.length <= 1) return null;
 
+  const openPrint = (id: string) => {
+    useStore.getState().markInternalTrailNav();
+    router.replace(`/card/${id}`);
+  };
+
   return (
     <View style={[styles.container, { backgroundColor: theme.surface }]}>
       <Text style={[styles.heading, { color: theme.accent }]}>Printings</Text>
-
       {isLoading ? (
         <ActivityIndicator color={theme.accent} style={styles.loader} />
       ) : isError ? (
         <Text style={[styles.empty, { color: theme.textSecondary }]}>Could not load printings</Text>
       ) : (
-        printings.map(p => (
-          <PrintingRow
-            key={p.scryfall_id}
-            printing={p}
-            onPress={() => {
-              useStore.getState().markInternalTrailNav();
-              router.replace(`/card/${p.scryfall_id}`);
-            }}
-          />
-        ))
+        printings.map(p => <PrintingRow key={p.scryfall_id} printing={p} onPress={() => openPrint(p.scryfall_id)} />)
       )}
     </View>
   );
 }
 
-type RowProps = { printing: PrintingSummary; onPress: () => void };
-
-function PrintingRow({ printing, onPress }: RowProps) {
+function PrintingRow({ printing, onPress }: { printing: PrintingSummary; onPress: () => void }) {
   const theme = useTheme();
   const usd = printing.prices.usd ? `$${printing.prices.usd}` : '—';
   const foil = printing.prices.usd_foil ? `$${printing.prices.usd_foil}` : null;

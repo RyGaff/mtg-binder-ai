@@ -21,6 +21,8 @@ import {
 import { useTheme } from '../../src/theme/useTheme';
 import { Icon } from '../../src/components/icons/Icon';
 
+const BOARDS = ['commander', 'main', 'side'] as const;
+
 export default function DeckDetailScreen() {
   const theme = useTheme();
   const { id } = useLocalSearchParams<{ id: string }>();
@@ -28,11 +30,7 @@ export default function DeckDetailScreen() {
   const router = useRouter();
   const qc = useQueryClient();
 
-  const { data: decks = [] } = useQuery({
-    queryKey: ['decks'],
-    queryFn: getDecks,
-  });
-
+  const { data: decks = [] } = useQuery({ queryKey: ['decks'], queryFn: getDecks });
   const { data: cards = [] } = useQuery({
     queryKey: ['deck-cards', deckId],
     queryFn: () => getDeckCards(deckId),
@@ -41,13 +39,12 @@ export default function DeckDetailScreen() {
   const deck = useMemo(() => decks.find((d) => d.id === deckId), [decks, deckId]);
 
   const sections = useMemo(
-    () =>
-      (['commander', 'main', 'side'] as const)
-        .map((board) => ({
-          title: board.charAt(0).toUpperCase() + board.slice(1),
-          data: cards.filter((c) => c.board === board),
-        }))
-        .filter((s) => s.data.length > 0),
+    () => BOARDS
+      .map((board) => ({
+        title: board.charAt(0).toUpperCase() + board.slice(1),
+        data: cards.filter((c) => c.board === board),
+      }))
+      .filter((s) => s.data.length > 0),
     [cards],
   );
 
@@ -55,9 +52,7 @@ export default function DeckDetailScreen() {
     try {
       const text = exportDeckAsText(deckId);
       const path = `${FileSystem.cacheDirectory}${deck?.name ?? 'deck'}.txt`;
-      await FileSystem.writeAsStringAsync(path, text, {
-        encoding: FileSystem.EncodingType.UTF8,
-      });
+      await FileSystem.writeAsStringAsync(path, text, { encoding: FileSystem.EncodingType.UTF8 });
       await Sharing.shareAsync(path, { mimeType: 'text/plain' });
     } catch {
       Alert.alert('Export Failed', 'Could not export deck.');
@@ -81,10 +76,7 @@ export default function DeckDetailScreen() {
     [deckId, qc],
   );
 
-  const keyExtractor = useCallback(
-    (item: DeckCard) => `${item.scryfall_id}-${item.board}`,
-    [],
-  );
+  const keyExtractor = useCallback((item: DeckCard) => `${item.scryfall_id}-${item.board}`, []);
 
   const renderSectionHeader = useCallback(
     ({ section }: { section: { title: string; data: DeckCard[] } }) => (
@@ -136,10 +128,7 @@ export default function DeckDetailScreen() {
           <Icon name="plus" size={16} color={theme.text} strokeWidth={2.5} />
           <Text style={[styles.btnText, { color: theme.text }]}>Add Cards</Text>
         </TouchableOpacity>
-        <TouchableOpacity
-          style={[styles.btn, { backgroundColor: theme.surfaceAlt }]}
-          onPress={handleExport}
-        >
+        <TouchableOpacity style={[styles.btn, { backgroundColor: theme.surfaceAlt }]} onPress={handleExport}>
           <Text style={[styles.btnText, { color: theme.text }]}>Export</Text>
         </TouchableOpacity>
       </View>

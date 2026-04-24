@@ -1,9 +1,4 @@
-import {
-  View,
-  Text,
-  TouchableOpacity,
-  StyleSheet,
-} from 'react-native';
+import { View, Text, TouchableOpacity, StyleSheet } from 'react-native';
 import { useRouter } from 'expo-router';
 import { useQuery } from '@tanstack/react-query';
 import { useStore } from '../src/store/useStore';
@@ -25,8 +20,8 @@ const VIEW_MODES: { mode: SearchViewMode; label: string }[] = [
 ];
 
 const GRID_COL_OPTIONS: SearchGridCols[] = [1, 2, 3, 4, 5];
-
 const FEEDBACK_EMAIL = 'lotusfieldmtg@gmail.com';
+const HIT_SLOP = { top: 8, bottom: 8, left: 8, right: 8 };
 
 export default function ProfileScreen() {
   const router = useRouter();
@@ -39,27 +34,22 @@ export default function ProfileScreen() {
   const setSearchGridCols = useStore((s) => s.setSearchGridCols);
   const t = useTheme();
 
-  const { data: totalValue = 0 } = useQuery({
-    queryKey: ['collection-value'],
-    queryFn: getCollectionTotalValue,
-  });
+  const { data: totalValue = 0 } = useQuery({ queryKey: ['collection-value'], queryFn: getCollectionTotalValue });
+  const { data: totalCards = 0 } = useQuery({ queryKey: ['total-cards'], queryFn: getTotalCardCount });
+  const { data: foilCount = 0 } = useQuery({ queryKey: ['foil-count'], queryFn: getFoilCount });
 
-  const { data: totalCards = 0 } = useQuery({
-    queryKey: ['total-cards'],
-    queryFn: getTotalCardCount,
-  });
-
-  const { data: foilCount = 0 } = useQuery({
-    queryKey: ['foil-count'],
-    queryFn: getFoilCount,
-  });
+  const closeScreen = () => (router.canGoBack() ? router.back() : router.replace('/'));
+  const pillStyle = (active: boolean) =>
+    [styles.themePill, { backgroundColor: t.surface, borderColor: active ? t.accent : t.border }];
+  const pillTextStyle = (active: boolean) =>
+    [styles.themePillText, { color: active ? t.accent : t.textSecondary }];
 
   return (
     <View style={[styles.screen, { backgroundColor: t.bg }]}>
       <TouchableOpacity
         style={styles.closeBtn}
-        onPress={() => (router.canGoBack() ? router.back() : router.replace('/'))}
-        hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+        onPress={closeScreen}
+        hitSlop={HIT_SLOP}
         accessibilityLabel="Close"
         accessibilityRole="button"
       >
@@ -93,30 +83,23 @@ export default function ProfileScreen() {
       <View style={styles.section}>
         <Text style={[styles.sectionLabel, { color: t.textSecondary }]}>Theme</Text>
 
-        {/* Built-in pills */}
         <View style={[styles.themePills, styles.rowGap]}>
           {BUILT_IN_THEMES.map((th) => {
             const active = theme === th.name;
             return (
               <TouchableOpacity
                 key={th.name}
-                style={[
-                  styles.themePill,
-                  { backgroundColor: t.surface, borderColor: active ? t.accent : t.border },
-                ]}
+                style={pillStyle(active)}
                 onPress={() => setTheme(th.name)}
                 accessibilityRole="button"
                 accessibilityState={{ selected: active }}
               >
-                <Text style={[styles.themePillText, { color: active ? t.accent : t.textSecondary }]}>
-                  {th.label}
-                </Text>
+                <Text style={pillTextStyle(active)}>{th.label}</Text>
               </TouchableOpacity>
             );
           })}
         </View>
 
-        {/* Custom slots */}
         <View style={styles.themePills}>
           {([0, 1, 2] as const).map((index) => {
             const customName = `custom-${index}` as ThemeName;
@@ -125,13 +108,7 @@ export default function ProfileScreen() {
 
             if (custom) {
               return (
-                <View
-                  key={customName}
-                  style={[
-                    styles.themePill,
-                    { backgroundColor: t.surface, borderColor: active ? t.accent : t.border },
-                  ]}
-                >
+                <View key={customName} style={pillStyle(active)}>
                   <TouchableOpacity
                     style={{ flex: 1 }}
                     onPress={() => setTheme(customName)}
@@ -139,13 +116,11 @@ export default function ProfileScreen() {
                     accessibilityState={{ selected: active }}
                     accessibilityLabel={custom.label}
                   >
-                    <Text style={[styles.themePillText, { color: active ? t.accent : t.textSecondary }]} numberOfLines={1}>
-                      {custom.label}
-                    </Text>
+                    <Text style={pillTextStyle(active)} numberOfLines={1}>{custom.label}</Text>
                   </TouchableOpacity>
                   <TouchableOpacity
                     onPress={() => router.push(`/theme-editor?slot=${index}&mode=edit`)}
-                    hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+                    hitSlop={HIT_SLOP}
                     accessibilityRole="button"
                     accessibilityLabel={`Edit ${custom.label}`}
                   >
@@ -158,11 +133,7 @@ export default function ProfileScreen() {
             return (
               <TouchableOpacity
                 key={customName}
-                style={[
-                  styles.themePill,
-                  styles.themePillEmpty,
-                  { borderColor: t.border },
-                ]}
+                style={[styles.themePill, styles.themePillEmpty, { borderColor: t.border }]}
                 onPress={() => router.push(`/theme-editor?slot=${index}&mode=new`)}
                 accessibilityRole="button"
                 accessibilityLabel={`Create custom theme ${index + 1}`}
@@ -183,17 +154,12 @@ export default function ProfileScreen() {
             return (
               <TouchableOpacity
                 key={v.mode}
-                style={[
-                  styles.themePill,
-                  { backgroundColor: t.surface, borderColor: active ? t.accent : t.border },
-                ]}
+                style={pillStyle(active)}
                 onPress={() => setSearchViewMode(v.mode)}
                 accessibilityRole="button"
                 accessibilityState={{ selected: active }}
               >
-                <Text style={[styles.themePillText, { color: active ? t.accent : t.textSecondary }]}>
-                  {v.label}
-                </Text>
+                <Text style={pillTextStyle(active)}>{v.label}</Text>
               </TouchableOpacity>
             );
           })}
@@ -205,18 +171,13 @@ export default function ProfileScreen() {
               return (
                 <TouchableOpacity
                   key={n}
-                  style={[
-                    styles.themePill,
-                    { backgroundColor: t.surface, borderColor: active ? t.accent : t.border },
-                  ]}
+                  style={pillStyle(active)}
                   onPress={() => setSearchGridCols(n)}
                   accessibilityRole="button"
                   accessibilityState={{ selected: active }}
                   accessibilityLabel={`${n} cards per row`}
                 >
-                  <Text style={[styles.themePillText, { color: active ? t.accent : t.textSecondary }]}>
-                    {n}
-                  </Text>
+                  <Text style={pillTextStyle(active)}>{n}</Text>
                 </TouchableOpacity>
               );
             })}
@@ -251,28 +212,13 @@ const styles = StyleSheet.create({
   screen: { flex: 1, padding: 24, paddingTop: 60 },
   closeBtn: { position: 'absolute', top: 16, right: 16, padding: 8, minWidth: 44, minHeight: 44, alignItems: 'flex-end', justifyContent: 'center' },
   screenTitle: { fontSize: 22, fontWeight: '700', marginBottom: 32 },
-
   section: { marginBottom: 28 },
-  sectionLabel: {
-    fontSize: 11,
-    fontWeight: '600',
-    textTransform: 'uppercase',
-    letterSpacing: 1,
-    marginBottom: 10,
-  },
-
-  statsCard: {
-    borderRadius: 12,
-    padding: 20,
-    flexDirection: 'row',
-    justifyContent: 'space-around',
-    alignItems: 'center',
-  },
+  sectionLabel: { fontSize: 11, fontWeight: '600', textTransform: 'uppercase', letterSpacing: 1, marginBottom: 10 },
+  statsCard: { borderRadius: 12, padding: 20, flexDirection: 'row', justifyContent: 'space-around', alignItems: 'center' },
   statItem: { alignItems: 'center' },
   statValue: { fontSize: 22, fontWeight: '700' },
   statLabel: { fontSize: 12, marginTop: 4 },
   statDivider: { width: 1, height: 32 },
-
   themePills: { flexDirection: 'row', flexWrap: 'wrap', gap: 8 },
   rowGap: { marginBottom: 8 },
   themePill: {
@@ -290,13 +236,6 @@ const styles = StyleSheet.create({
   },
   themePillEmpty: { borderStyle: 'dashed' },
   themePillText: { fontWeight: '600', fontSize: 13 },
-
-  feedbackRow: {
-    borderRadius: 10,
-    padding: 16,
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-  },
+  feedbackRow: { borderRadius: 10, padding: 16, flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' },
   feedbackText: { fontSize: 14 },
 });

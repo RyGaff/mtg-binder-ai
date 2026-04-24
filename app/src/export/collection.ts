@@ -26,34 +26,18 @@ export function serializeToJson(entries: CollectionEntryWithCard[]): string {
   );
 }
 
-const CSV_HEADERS = [
-  'scryfall_id',
-  'name',
-  'set_code',
-  'collector_number',
-  'quantity',
-  'foil',
-  'condition',
-];
+const CSV_HEADERS = ['scryfall_id', 'name', 'set_code', 'collector_number', 'quantity', 'foil', 'condition'];
 
 export function serializeToCsv(entries: CollectionEntryWithCard[]): string {
   const rows = entries.map((e) =>
-    [
-      e.scryfall_id,
-      e.name,
-      e.set_code,
-      e.collector_number,
-      e.quantity,
-      e.foil ? '1' : '0',
-      e.condition,
-    ]
+    [e.scryfall_id, e.name, e.set_code, e.collector_number, e.quantity, e.foil ? '1' : '0', e.condition]
       .map((v) => `"${String(v).replace(/"/g, '""')}"`)
       .join(',')
   );
   return [CSV_HEADERS.join(','), ...rows].join('\n');
 }
 
-// Maps Moxfield condition strings to app condition codes
+// Maps Moxfield condition strings to app condition codes.
 function mapCondition(raw: string): string {
   switch (raw.trim()) {
     case 'Near Mint': return 'NM';
@@ -66,7 +50,7 @@ function mapCondition(raw: string): string {
 }
 
 function parseRow(obj: Record<string, string>): ImportRow {
-  // Moxfield format detection: has "Count" and "Edition" columns
+  // Moxfield format: has "Count" column.
   if ('Count' in obj) {
     return {
       scryfall_id: '',
@@ -78,7 +62,7 @@ function parseRow(obj: Record<string, string>): ImportRow {
       collector_number: obj['Collector Number'] ?? '',
     };
   }
-  // App's own CSV format
+  // App's own CSV format.
   return {
     scryfall_id: obj.scryfall_id ?? '',
     name: obj.name ?? '',
@@ -96,7 +80,6 @@ function splitCsvLine(line: string): string[] {
   let i = 0;
   while (i < line.length) {
     if (line[i] === '"') {
-      // Quoted field
       let field = '';
       i++; // skip opening quote
       while (i < line.length) {
@@ -111,9 +94,8 @@ function splitCsvLine(line: string): string[] {
         }
       }
       fields.push(field);
-      if (line[i] === ',') i++; // skip comma separator
+      if (line[i] === ',') i++;
     } else {
-      // Unquoted field
       const end = line.indexOf(',', i);
       if (end === -1) {
         fields.push(line.slice(i));
@@ -126,21 +108,14 @@ function splitCsvLine(line: string): string[] {
   return fields;
 }
 
-export function parseImportFile(
-  content: string,
-  format: 'json' | 'csv'
-): ImportRow[] {
-  if (format === 'json') {
-    return JSON.parse(content) as ImportRow[];
-  }
+export function parseImportFile(content: string, format: 'json' | 'csv'): ImportRow[] {
+  if (format === 'json') return JSON.parse(content) as ImportRow[];
   const lines = content.split('\n').filter(Boolean);
   const headers = splitCsvLine(lines[0]).map((h) => h.trim());
   return lines.slice(1).map((line) => {
     const values = splitCsvLine(line);
     const obj: Record<string, string> = {};
-    headers.forEach((h, i) => {
-      obj[h] = values[i] ?? '';
-    });
+    headers.forEach((h, i) => { obj[h] = values[i] ?? ''; });
     return parseRow(obj);
   });
 }

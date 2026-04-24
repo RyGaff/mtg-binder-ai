@@ -10,17 +10,20 @@ export function ConditionPicker({ value, onChange }: Props) {
   const theme = useTheme();
   return (
     <View style={styles.row}>
-      {CONDITIONS.map((c) => (
-        <TouchableOpacity
-          key={c}
-          onPress={() => onChange(c)}
-          style={[styles.chip, { backgroundColor: value === c ? theme.accent : theme.surface }]}
-        >
-          <Text style={[styles.label, { color: value === c ? theme.text : theme.textSecondary, fontWeight: value === c ? '700' : '400' }]}>
-            {c}
-          </Text>
-        </TouchableOpacity>
-      ))}
+      {CONDITIONS.map((c) => {
+        const active = value === c;
+        return (
+          <TouchableOpacity
+            key={c}
+            onPress={() => onChange(c)}
+            style={[styles.chip, { backgroundColor: active ? theme.accent : theme.surface }]}
+          >
+            <Text style={[styles.label, { color: active ? theme.text : theme.textSecondary, fontWeight: active ? '700' : '400' }]}>
+              {c}
+            </Text>
+          </TouchableOpacity>
+        );
+      })}
     </View>
   );
 }

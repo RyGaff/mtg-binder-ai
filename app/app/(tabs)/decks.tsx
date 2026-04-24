@@ -17,22 +17,14 @@ import { useStore } from '../../src/store/useStore';
 import { useKeyboardAppearance, useTheme } from '../../src/theme/useTheme';
 import { Icon } from '../../src/components/icons/Icon';
 
-const FORMATS = [
-  'Commander', 'Standard', 'Modern', 'Legacy',
-  'Vintage', 'Pioneer', 'Pauper', 'Draft', 'Other',
-];
-
+const FORMATS = ['Commander', 'Standard', 'Modern', 'Legacy', 'Vintage', 'Pioneer', 'Pauper', 'Draft', 'Other'];
 const ROW_HEIGHT = 62; // padding 14*2 + content ~22 + marginBottom 8
 
 type Theme = ReturnType<typeof useTheme>;
 
-function keyExtractor(d: Deck) {
-  return String(d.id);
-}
-
-function getItemLayout(_: ArrayLike<Deck> | null | undefined, index: number) {
-  return { length: ROW_HEIGHT, offset: ROW_HEIGHT * index, index };
-}
+const keyExtractor = (d: Deck) => String(d.id);
+const getItemLayout = (_: ArrayLike<Deck> | null | undefined, index: number) =>
+  ({ length: ROW_HEIGHT, offset: ROW_HEIGHT * index, index });
 
 type DeckRowProps = {
   deck: Deck;
@@ -42,18 +34,9 @@ type DeckRowProps = {
   onLongPress: (id: number, name: string) => void;
 };
 
-const DeckRow = memo(function DeckRow({
-  deck,
-  active,
-  theme,
-  onPress,
-  onLongPress,
-}: DeckRowProps) {
+const DeckRow = memo(function DeckRow({ deck, active, theme, onPress, onLongPress }: DeckRowProps) {
   const handlePress = useCallback(() => onPress(deck.id), [onPress, deck.id]);
-  const handleLongPress = useCallback(
-    () => onLongPress(deck.id, deck.name),
-    [onLongPress, deck.id, deck.name],
-  );
+  const handleLongPress = useCallback(() => onLongPress(deck.id, deck.name), [onLongPress, deck.id, deck.name]);
   return (
     <TouchableOpacity
       style={[
@@ -68,9 +51,7 @@ const DeckRow = memo(function DeckRow({
         <Text style={[styles.deckName, { color: theme.text }]}>{deck.name}</Text>
         <Text style={[styles.deckFormat, { color: theme.textSecondary }]}>{deck.format}</Text>
       </View>
-      {active && (
-        <Text style={[styles.activeBadge, { color: theme.accent }]}>Active</Text>
-      )}
+      {active && <Text style={[styles.activeBadge, { color: theme.accent }]}>Active</Text>}
     </TouchableOpacity>
   );
 });
@@ -87,14 +68,12 @@ export default function DecksScreen() {
   const [deckName, setDeckName] = useState('');
   const [selectedFormat, setSelectedFormat] = useState('Commander');
 
-  const { data: decks = [] } = useQuery({
-    queryKey: ['decks'],
-    queryFn: getDecks,
-  });
+  const { data: decks = [] } = useQuery({ queryKey: ['decks'], queryFn: getDecks });
 
   const handleCreate = useCallback(() => {
-    if (!deckName.trim()) return;
-    const id = createDeck({ name: deckName.trim(), format: selectedFormat });
+    const trimmed = deckName.trim();
+    if (!trimmed) return;
+    const id = createDeck({ name: trimmed, format: selectedFormat });
     qc.invalidateQueries({ queryKey: ['decks'] });
     setActiveDeckId(id);
     setModalVisible(false);
@@ -152,6 +131,8 @@ export default function DecksScreen() {
     [theme.textSecondary],
   );
 
+  const canCreate = deckName.trim().length > 0;
+
   return (
     <View style={[styles.screen, { backgroundColor: theme.bg }]}>
       <TouchableOpacity
@@ -176,12 +157,7 @@ export default function DecksScreen() {
         ListEmptyComponent={emptyText}
       />
 
-      <Modal
-        visible={modalVisible}
-        transparent
-        animationType="slide"
-        onRequestClose={closeModal}
-      >
+      <Modal visible={modalVisible} transparent animationType="slide" onRequestClose={closeModal}>
         <View style={styles.modalOverlay}>
           <View style={[styles.modalBox, { backgroundColor: theme.surface }]}>
             <Text style={[styles.modalTitle, { color: theme.text }]}>New Deck</Text>
@@ -201,10 +177,7 @@ export default function DecksScreen() {
                 return (
                   <TouchableOpacity
                     key={f}
-                    style={[
-                      styles.formatChip,
-                      { backgroundColor: isActive ? theme.accent : theme.surfaceAlt },
-                    ]}
+                    style={[styles.formatChip, { backgroundColor: isActive ? theme.accent : theme.surfaceAlt }]}
                     onPress={() => setSelectedFormat(f)}
                   >
                     <Text
@@ -221,16 +194,13 @@ export default function DecksScreen() {
               })}
             </View>
             <View style={styles.modalBtns}>
-              <TouchableOpacity
-                style={[styles.modalBtn, { backgroundColor: theme.surfaceAlt }]}
-                onPress={closeModal}
-              >
+              <TouchableOpacity style={[styles.modalBtn, { backgroundColor: theme.surfaceAlt }]} onPress={closeModal}>
                 <Text style={[styles.modalBtnText, { color: theme.text }]}>Cancel</Text>
               </TouchableOpacity>
               <TouchableOpacity
-                style={[styles.modalBtn, { backgroundColor: theme.accent }, !deckName.trim() && styles.modalBtnDisabled]}
+                style={[styles.modalBtn, { backgroundColor: theme.accent }, !canCreate && styles.modalBtnDisabled]}
                 onPress={handleCreate}
-                disabled={!deckName.trim()}
+                disabled={!canCreate}
               >
                 <Text style={[styles.modalBtnText, { color: theme.text }]}>Create</Text>
               </TouchableOpacity>
@@ -268,12 +238,7 @@ const styles = StyleSheet.create({
   deckFormat: { fontSize: 12, marginTop: 2 },
   activeBadge: { fontSize: 11, fontWeight: '700' },
   empty: { textAlign: 'center', marginTop: 60 },
-  modalOverlay: {
-    flex: 1,
-    backgroundColor: 'rgba(0,0,0,0.6)',
-    alignItems: 'center',
-    justifyContent: 'flex-end',
-  },
+  modalOverlay: { flex: 1, backgroundColor: 'rgba(0,0,0,0.6)', alignItems: 'center', justifyContent: 'flex-end' },
   modalBox: {
     width: '100%',
     borderTopLeftRadius: 16,
@@ -282,11 +247,7 @@ const styles = StyleSheet.create({
     gap: 12,
   },
   modalTitle: { fontSize: 18, fontWeight: '700' },
-  modalInput: {
-    borderRadius: 8,
-    padding: 12,
-    fontSize: 15,
-  },
+  modalInput: { borderRadius: 8, padding: 12, fontSize: 15 },
   modalLabel: { fontSize: 12, textTransform: 'uppercase', letterSpacing: 1 },
   formatGrid: { flexDirection: 'row', flexWrap: 'wrap', gap: 8, justifyContent: 'center' },
   formatChip: {
@@ -300,12 +261,7 @@ const styles = StyleSheet.create({
   formatChipText: { fontSize: 12 },
   formatChipTextActive: { fontWeight: '600' },
   modalBtns: { flexDirection: 'row', gap: 8, marginTop: 4 },
-  modalBtn: {
-    flex: 1,
-    borderRadius: 8,
-    padding: 12,
-    alignItems: 'center',
-  },
+  modalBtn: { flex: 1, borderRadius: 8, padding: 12, alignItems: 'center' },
   modalBtnDisabled: { opacity: 0.4 },
   modalBtnText: { fontWeight: '700' },
 });

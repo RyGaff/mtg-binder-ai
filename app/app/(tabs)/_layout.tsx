@@ -43,30 +43,9 @@ export default function TabLayout() {
           ),
         }}
       />
-      <Tabs.Screen
-        name="search"
-        options={{
-          title: 'Search',
-          tabBarIcon: tabIcon('search'),
-          tabBarAccessibilityLabel: 'Search',
-        }}
-      />
-      <Tabs.Screen
-        name="scan"
-        options={{
-          title: 'Scan',
-          tabBarIcon: tabIcon('camera'),
-          tabBarAccessibilityLabel: 'Scan',
-        }}
-      />
-      <Tabs.Screen
-        name="decks"
-        options={{
-          title: 'Decks',
-          tabBarIcon: tabIcon('cards'),
-          tabBarAccessibilityLabel: 'Decks',
-        }}
-      />
+      <Tabs.Screen name="search" options={{ title: 'Search', tabBarIcon: tabIcon('search'), tabBarAccessibilityLabel: 'Search' }} />
+      <Tabs.Screen name="scan" options={{ title: 'Scan', tabBarIcon: tabIcon('camera'), tabBarAccessibilityLabel: 'Scan' }} />
+      <Tabs.Screen name="decks" options={{ title: 'Decks', tabBarIcon: tabIcon('cards'), tabBarAccessibilityLabel: 'Decks' }} />
     </Tabs>
   );
 }

@@ -28,16 +28,14 @@ import {
   type AddToCollectionArgs,
 } from '../../src/db/collection';
 import { upsertCards, getCardBySetNumber, getCardById, type CachedCard } from '../../src/db/cards';
-import {
-  serializeToJson,
-  serializeToCsv,
-  parseImportFile,
-} from '../../src/export/collection';
+import { serializeToJson, serializeToCsv, parseImportFile } from '../../src/export/collection';
 import { fetchCardByName, fetchCardBySetNumber } from '../../src/api/scryfall';
 import { useKeyboardAppearance, useTheme } from '../../src/theme/useTheme';
 import { spacing, radius, font, MIN_TOUCH, HIT_SLOP_8 } from '../../src/theme/themes';
 import { Icon } from '../../src/components/icons/Icon';
 import { useDebouncedValue } from '../../src/hooks/useDebouncedValue';
+
+type ImportProgress = { current: number; total: number; currentName: string };
 
 export default function BinderScreen() {
   const theme = useTheme();
@@ -49,16 +47,13 @@ export default function BinderScreen() {
 
   const [searchQuery, setSearchQuery] = useState('');
   const debouncedSearchQuery = useDebouncedValue(searchQuery, 250);
-  const [importProgress, setImportProgress] = useState<{
-    current: number;
-    total: number;
-    currentName: string;
-  } | null>(null);
+  const [importProgress, setImportProgress] = useState<ImportProgress | null>(null);
 
   const { data: entries = [] } = useQuery({
     queryKey: ['collection', colorFilter, debouncedSearchQuery],
     queryFn: () => {
-      if (debouncedSearchQuery.trim()) return searchCollection(debouncedSearchQuery.trim());
+      const q = debouncedSearchQuery.trim();
+      if (q) return searchCollection(q);
       return colorFilter === 'all' ? getCollection() : getCollectionByColor(colorFilter);
     },
   });
@@ -70,12 +65,9 @@ export default function BinderScreen() {
 
   const exportAs = async (format: 'json' | 'csv') => {
     try {
-      const content =
-        format === 'json' ? serializeToJson(entries) : serializeToCsv(entries);
+      const content = format === 'json' ? serializeToJson(entries) : serializeToCsv(entries);
       const path = `${FileSystem.cacheDirectory}collection.${format}`;
-      await FileSystem.writeAsStringAsync(path, content, {
-        encoding: FileSystem.EncodingType.UTF8,
-      });
+      await FileSystem.writeAsStringAsync(path, content, { encoding: FileSystem.EncodingType.UTF8 });
       await Sharing.shareAsync(path);
     } catch {
       Alert.alert('Export Failed', 'Could not export collection.');
@@ -112,28 +104,24 @@ export default function BinderScreen() {
       try {
         let scryfallId = row.scryfall_id;
         if (!scryfallId) {
-          const cached =
-            row.set_code && row.collector_number
-              ? getCardBySetNumber(row.set_code, row.collector_number)
-              : null;
+          const cached = row.set_code && row.collector_number
+            ? getCardBySetNumber(row.set_code, row.collector_number)
+            : null;
           if (cached) {
             scryfallId = cached.scryfall_id;
           } else {
             // Throttle: 100ms between network calls to stay under Scryfall rate limit
             await new Promise((r) => setTimeout(r, 100));
-            const card =
-              row.set_code && row.collector_number
-                ? await fetchCardBySetNumber(row.set_code, row.collector_number)
-                : await fetchCardByName(row.name);
+            const card = row.set_code && row.collector_number
+              ? await fetchCardBySetNumber(row.set_code, row.collector_number)
+              : await fetchCardByName(row.name);
             toUpsert.push(card);
             scryfallId = card.scryfall_id;
           }
         } else if (!getCardById(scryfallId)) {
           await new Promise((r) => setTimeout(r, 100));
-          const card = await fetchCardBySetNumber(
-            row.set_code ?? '',
-            row.collector_number ?? ''
-          ).catch(() => fetchCardByName(row.name));
+          const card = await fetchCardBySetNumber(row.set_code ?? '', row.collector_number ?? '')
+            .catch(() => fetchCardByName(row.name));
           toUpsert.push(card);
         }
         toAdd.push({
@@ -154,17 +142,28 @@ export default function BinderScreen() {
     setImportProgress(null);
     qc.invalidateQueries({ queryKey: ['collection'] });
     qc.invalidateQueries({ queryKey: ['collection-value'] });
-    const msg = failed > 0
-      ? `Added ${added} cards. ${failed} could not be found.`
-      : `Added ${added} cards.`;
-    Alert.alert('Import Complete', msg);
+    Alert.alert(
+      'Import Complete',
+      failed > 0 ? `Added ${added} cards. ${failed} could not be found.` : `Added ${added} cards.`,
+    );
   };
 
-  const progress = importProgress
-    ? importProgress.current / importProgress.total
-    : 0;
-
+  const progress = importProgress ? importProgress.current / importProgress.total : 0;
   const handleAddPress = useCallback(() => router.push('/search'), [router]);
+
+  const handleClear = () =>
+    Alert.alert('Clear Collection', 'Delete all cards?', [
+      { text: 'Cancel', style: 'cancel' },
+      {
+        text: 'Clear',
+        style: 'destructive',
+        onPress: () => {
+          clearCollection();
+          qc.invalidateQueries({ queryKey: ['collection'] });
+          qc.invalidateQueries({ queryKey: ['collection-value'] });
+        },
+      },
+    ]);
 
   return (
     <View style={[styles.container, { backgroundColor: theme.bg }]}>
@@ -181,23 +180,7 @@ export default function BinderScreen() {
             <Text style={[styles.headerBtnText, { color: theme.text }]}>Export</Text>
           </TouchableOpacity>
           {__DEV__ && (
-            <TouchableOpacity
-              style={[styles.headerBtn, styles.headerBtnDanger]}
-              onPress={() =>
-                Alert.alert('Clear Collection', 'Delete all cards?', [
-                  { text: 'Cancel', style: 'cancel' },
-                  {
-                    text: 'Clear',
-                    style: 'destructive',
-                    onPress: () => {
-                      clearCollection();
-                      qc.invalidateQueries({ queryKey: ['collection'] });
-                      qc.invalidateQueries({ queryKey: ['collection-value'] });
-                    },
-                  },
-                ])
-              }
-            >
+            <TouchableOpacity style={[styles.headerBtn, styles.headerBtnDanger]} onPress={handleClear}>
               <Text style={[styles.headerBtnText, { color: theme.text }]}>DEV: Clear</Text>
             </TouchableOpacity>
           )}
@@ -290,22 +273,10 @@ const styles = StyleSheet.create({
     paddingHorizontal: spacing.md,
     minHeight: MIN_TOUCH,
   },
-  searchBar: {
-    flex: 1,
-    paddingVertical: spacing.sm,
-    fontSize: font.body,
-  },
-  clearBtn: {
-    paddingHorizontal: spacing.sm,
-    paddingVertical: spacing.xs,
-  },
+  searchBar: { flex: 1, paddingVertical: spacing.sm, fontSize: font.body },
+  clearBtn: { paddingHorizontal: spacing.sm, paddingVertical: spacing.xs },
   clearBtnText: { fontSize: font.body, fontWeight: '600' },
-  overlay: {
-    flex: 1,
-    backgroundColor: 'rgba(0,0,0,0.7)',
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
+  overlay: { flex: 1, backgroundColor: 'rgba(0,0,0,0.7)', alignItems: 'center', justifyContent: 'center' },
   importCard: {
     borderRadius: radius.xl,
     padding: spacing.xl + 4,
@@ -316,14 +287,6 @@ const styles = StyleSheet.create({
   importTitle: { fontSize: 17, fontWeight: '700' },
   importCount: { fontSize: font.hero, fontWeight: '700' },
   importName: { fontSize: 13, maxWidth: 220, textAlign: 'center' },
-  progressTrack: {
-    width: '100%',
-    height: 4,
-    borderRadius: 2,
-    overflow: 'hidden',
-  },
-  progressFill: {
-    height: '100%',
-    borderRadius: 2,
-  },
+  progressTrack: { width: '100%', height: 4, borderRadius: 2, overflow: 'hidden' },
+  progressFill: { height: '100%', borderRadius: 2 },
 });

@@ -21,6 +21,7 @@ import { ConditionPicker, type Condition } from '../../src/components/ConditionP
 import { FindSimilar } from '../../src/components/FindSimilar';
 import { Synergy } from '../../src/components/Synergy';
 import { AdditionalPrints } from '../../src/components/AdditionalPrints';
+import { MeldLinks } from '../../src/components/MeldLinks';
 import { PressableCardImage } from '../../src/components/PressableCardImage';
 import { addToCollection } from '../../src/db/collection';
 import { addCardToDeck } from '../../src/db/decks';
@@ -33,8 +34,7 @@ const HERO_ASPECT = 488 / 680;
 // Card image is sized as a fraction of the shorter screen edge so it scales
 // gracefully across phone portrait, phone landscape, and tablet.
 function heroImageSize(width: number, height: number) {
-  const minEdge = Math.min(width, height);
-  const w = Math.min(Math.max(minEdge * 0.36, 120), 220);
+  const w = Math.min(Math.max(Math.min(width, height) * 0.36, 120), 220);
   return { width: w, height: w / HERO_ASPECT };
 }
 
@@ -82,6 +82,8 @@ export default function CardDetailModal() {
   const [condition, setCondition] = useState<Condition>('NM');
   const [foil, setFoil] = useState(false);
   const [extrasReady, setExtrasReady] = useState(false);
+  const [heroFlipped, setHeroFlipped] = useState(false);
+  const toggleHeroFlip = useCallback(() => setHeroFlipped((f) => !f), []);
 
   // Read direction ONCE before first paint — start off-screen instead of snapping.
   const initialDirRef = useRef(useStore.getState().lastCardNavDir);
@@ -102,11 +104,9 @@ export default function CardDetailModal() {
     setExtrasReady(true);
   }, []);
 
-  useEffect(() => {
-    return () => {
-      isMountedRef.current = false;
-      slideX.stopAnimation();
-    };
+  useEffect(() => () => {
+    isMountedRef.current = false;
+    slideX.stopAnimation();
   }, [slideX]);
 
   useEffect(() => {
@@ -118,6 +118,8 @@ export default function CardDetailModal() {
   useEffect(() => {
     if (card) pushCardTrail({ id: card.scryfall_id, name: card.name });
   }, [card?.scryfall_id, card?.name, pushCardTrail]);
+
+  useEffect(() => { setHeroFlipped(false); }, [card?.scryfall_id]);
 
   useEffect(() => {
     trailScrollRef.current?.scrollToEnd({ animated: false });
@@ -197,13 +199,9 @@ export default function CardDetailModal() {
   }, [navigation, goBackInTrail, clearCardTrail]);
 
   const animateSwapRef = useRef(animateSwap);
-  useEffect(() => {
-    animateSwapRef.current = animateSwap;
-  }, [animateSwap]);
   const handleCloseRef = useRef(handleClose);
-  useEffect(() => {
-    handleCloseRef.current = handleClose;
-  }, [handleClose]);
+  useEffect(() => { animateSwapRef.current = animateSwap; }, [animateSwap]);
+  useEffect(() => { handleCloseRef.current = handleClose; }, [handleClose]);
 
   const panResponder = useMemo(() => {
     const classify = (g: { dx: number; dy: number }): 'right' | 'down' | null => {
@@ -222,9 +220,7 @@ export default function CardDetailModal() {
       dir: 'right' | 'down' | null,
       g: { dx: number; dy: number; vx: number; vy: number },
     ) => {
-      const width = Dimensions.get('window').width;
-      const height = Dimensions.get('window').height;
-
+      const { width, height } = Dimensions.get('window');
       if (dir === 'right' && (g.dx > width * COMMIT_DIST_RATIO || g.vx > COMMIT_VELOCITY)) {
         const current = useStore.getState().cardTrail;
         if (current.length > 1) {
@@ -272,6 +268,8 @@ export default function CardDetailModal() {
     return <LoadingOrError theme={theme} errStatus={errStatus} error={error} onExit={handleClose} />;
   }
 
+  const setScrollTop = (y: number) => { scrollAtTopRef.current = y <= 0; };
+
   return (
     <View style={[styles.screen, { backgroundColor: theme.bg }]}>
       {prevCard && (
@@ -290,15 +288,9 @@ export default function CardDetailModal() {
           style={styles.screen}
           contentContainerStyle={styles.content}
           directionalLockEnabled
-          onScrollBeginDrag={() => {
-            scrollAtTopRef.current = false;
-          }}
-          onScroll={(e) => {
-            scrollAtTopRef.current = e.nativeEvent.contentOffset.y <= 0;
-          }}
-          onScrollEndDrag={(e) => {
-            scrollAtTopRef.current = e.nativeEvent.contentOffset.y <= 0;
-          }}
+          onScrollBeginDrag={() => { scrollAtTopRef.current = false; }}
+          onScroll={(e) => setScrollTop(e.nativeEvent.contentOffset.y)}
+          onScrollEndDrag={(e) => setScrollTop(e.nativeEvent.contentOffset.y)}
           scrollEventThrottle={16}
         >
           <TopBar
@@ -308,7 +300,13 @@ export default function CardDetailModal() {
             onJump={jumpToTrailCard}
             onClose={handleClose}
           />
-          <CardHero card={card} theme={theme} onImageReady={handleHeroReady} />
+          <CardHero
+            card={card}
+            theme={theme}
+            onImageReady={handleHeroReady}
+            flipped={heroFlipped}
+            onFlip={toggleHeroFlip}
+          />
           <CardActions
             theme={theme}
             condition={condition}
@@ -318,6 +316,7 @@ export default function CardDetailModal() {
             onAddToBinder={() => addBinder(card, foil, condition, qc)}
             onAddToDeck={() => addDeck(card, activeDeckId)}
           />
+          <MeldLinks card={card} />
           {extrasReady && (
             <>
               <FindSimilar card={card} />
@@ -347,14 +346,24 @@ function addDeck(card: Card, activeDeckId: number | null) {
   Alert.alert('Added', `${card.name} added to deck.`);
 }
 
-function parsePrices(raw: string | null | undefined): { usd?: string; usd_foil?: string } {
-  if (!raw) return {};
+function parseJsonSafe<T>(raw: string | null | undefined, fallback: T, label: string): T {
+  if (!raw) return fallback;
   try {
     return JSON.parse(raw);
   } catch (e) {
-    if (__DEV__) console.warn('[card] parsePrices: malformed JSON', e);
-    return {};
+    if (__DEV__) console.warn(`[card] ${label}: malformed JSON`, e);
+    return fallback;
   }
+}
+
+function parsePrices(raw: string | null | undefined): { usd?: string; usd_foil?: string } {
+  return parseJsonSafe(raw, {}, 'parsePrices');
+}
+
+type ParsedFace = { name: string; mana_cost: string; type_line: string; oracle_text: string; image_uri: string };
+function parseCardFaces(raw: string | null | undefined): ParsedFace[] {
+  const arr = parseJsonSafe<unknown>(raw, [], 'parseCardFaces');
+  return Array.isArray(arr) ? (arr as ParsedFace[]) : [];
 }
 
 function LoadingOrError({
@@ -368,14 +377,10 @@ function LoadingOrError({
   error: unknown;
   onExit: () => void;
 }) {
-  const msg =
-    errStatus === 404
-      ? 'Card not found'
-      : errStatus === 429
-        ? 'Scryfall is rate-limiting requests. Try again in a moment.'
-        : error
-          ? 'Could not load this card.'
-          : null;
+  let msg: string | null = null;
+  if (errStatus === 404) msg = 'Card not found';
+  else if (errStatus === 429) msg = 'Scryfall is rate-limiting requests. Try again in a moment.';
+  else if (error) msg = 'Could not load this card.';
 
   if (!msg) {
     return (
@@ -423,15 +428,9 @@ function TopBar({
         style={styles.trailScroll}
       >
         {trail.map((t, i) => {
-          const isLast = i === trail.length - 1;
-          if (isLast) {
+          if (i === trail.length - 1) {
             return (
-              <Text
-                key={t.id}
-                style={[styles.trailChipCurrent, { color: theme.text }]}
-                numberOfLines={1}
-                ellipsizeMode="tail"
-              >
+              <Text key={t.id} style={[styles.trailChipCurrent, { color: theme.text }]} numberOfLines={1} ellipsizeMode="tail">
                 {t.name}
               </Text>
             );
@@ -444,11 +443,7 @@ function TopBar({
                 accessibilityRole="button"
                 accessibilityLabel={`Back to ${t.name}`}
               >
-                <Text
-                  style={[styles.trailChip, { color: theme.textSecondary }]}
-                  numberOfLines={1}
-                  ellipsizeMode="tail"
-                >
+                <Text style={[styles.trailChip, { color: theme.textSecondary }]} numberOfLines={1} ellipsizeMode="tail">
                   {t.name}
                 </Text>
               </TouchableOpacity>
@@ -470,53 +465,65 @@ function TopBar({
   );
 }
 
-function CardHero({ card, theme, compact = false, onImageReady }: { card: Card; theme: Theme; compact?: boolean; onImageReady?: () => void }) {
+function HeroMeta({ theme, compact, name, mana, type, oracle, prices }: {
+  theme: Theme; compact: boolean; name: string; mana: string; type: string; oracle: string;
+  prices: { usd?: string; usd_foil?: string };
+}) {
+  return (
+    <View style={styles.meta}>
+      <Text style={[styles.name, { color: theme.text }]} numberOfLines={compact ? 2 : undefined} ellipsizeMode="tail">
+        {name}
+      </Text>
+      <Text style={[styles.subtitle, { color: theme.textSecondary }]} numberOfLines={compact ? 1 : undefined} ellipsizeMode="tail">
+        {mana}{'  '}{type}
+      </Text>
+      <Text style={[styles.oracle, { color: theme.textSecondary }]} numberOfLines={compact ? 5 : undefined} ellipsizeMode="tail">
+        {oracle}
+      </Text>
+      <View style={styles.prices}>
+        {prices.usd ? <Text style={[styles.price, { color: theme.accent }]}>${prices.usd}</Text> : null}
+        {prices.usd_foil ? (
+          <View style={styles.foilPriceRow}>
+            <Icon name="sparkle" size={12} color={theme.foilAccent} />
+            <Text style={[styles.price, { color: theme.foilAccent }]}>${prices.usd_foil}</Text>
+          </View>
+        ) : null}
+      </View>
+    </View>
+  );
+}
+
+function CardHero({ card, theme, compact = false, onImageReady, flipped = false, onFlip }: { card: Card; theme: Theme; compact?: boolean; onImageReady?: () => void; flipped?: boolean; onFlip?: () => void }) {
   const prices = parsePrices(card.prices);
+  const faces = parseCardFaces(card.card_faces);
+  const isMultiFace = faces.length >= 2;
+  const activeFace = isMultiFace ? faces[flipped ? 1 : 0] : undefined;
   const { width: winW, height: winH } = Dimensions.get('window');
   const imgSize = heroImageSize(winW, winH);
   return (
     <View style={styles.row}>
       {card.image_uri ? (
-        <PressableCardImage uri={card.image_uri} style={[styles.image, imgSize]} resizeMode="contain" onReady={onImageReady} />
+        <PressableCardImage
+          uri={card.image_uri}
+          uriBack={card.image_uri_back || undefined}
+          flipped={isMultiFace ? flipped : undefined}
+          onFlip={isMultiFace ? onFlip : undefined}
+          style={[styles.image, imgSize]}
+          resizeMode="contain"
+          onReady={onImageReady}
+        />
       ) : (
         <View style={[styles.image, imgSize, { backgroundColor: theme.surfaceAlt }]} onLayout={onImageReady} />
       )}
-      <View style={styles.meta}>
-        <Text
-          style={[styles.name, { color: theme.text }]}
-          numberOfLines={compact ? 2 : undefined}
-          ellipsizeMode="tail"
-        >
-          {card.name}
-        </Text>
-        <Text
-          style={[styles.subtitle, { color: theme.textSecondary }]}
-          numberOfLines={compact ? 1 : undefined}
-          ellipsizeMode="tail"
-        >
-          {card.mana_cost}
-          {'  '}
-          {card.type_line}
-        </Text>
-        <Text
-          style={[styles.oracle, { color: theme.textSecondary }]}
-          numberOfLines={compact ? 5 : undefined}
-          ellipsizeMode="tail"
-        >
-          {card.oracle_text}
-        </Text>
-        <View style={styles.prices}>
-          {prices.usd ? (
-            <Text style={[styles.price, { color: theme.accent }]}>${prices.usd}</Text>
-          ) : null}
-          {prices.usd_foil ? (
-            <View style={styles.foilPriceRow}>
-              <Icon name="sparkle" size={12} color={theme.foilAccent} />
-              <Text style={[styles.price, { color: theme.foilAccent }]}>${prices.usd_foil}</Text>
-            </View>
-          ) : null}
-        </View>
-      </View>
+      <HeroMeta
+        theme={theme}
+        compact={compact}
+        name={activeFace?.name || card.name}
+        mana={activeFace?.mana_cost ?? card.mana_cost}
+        type={activeFace?.type_line ?? card.type_line}
+        oracle={activeFace?.oracle_text ?? card.oracle_text}
+        prices={prices}
+      />
     </View>
   );
 }
@@ -538,6 +545,7 @@ function CardActions({
   onAddToBinder: () => void;
   onAddToDeck: () => void;
 }) {
+  const foilColor = foil ? theme.foilAccent : theme.textSecondary;
   return (
     <View style={styles.actions}>
       <Text style={[styles.sectionLabel, { color: theme.textSecondary }]}>Condition</Text>
@@ -549,18 +557,8 @@ function CardActions({
         accessibilityState={{ checked: foil }}
         accessibilityLabel="Foil"
       >
-        <Icon
-          name={foil ? 'sparkle' : 'sparkle-outline'}
-          size={14}
-          color={foil ? theme.foilAccent : theme.textSecondary}
-        />
-        <Text
-          style={[
-            styles.foilText,
-            { color: foil ? theme.foilAccent : theme.textSecondary },
-            foil && styles.foilActive,
-          ]}
-        >
+        <Icon name={foil ? 'sparkle' : 'sparkle-outline'} size={14} color={foilColor} />
+        <Text style={[styles.foilText, { color: foilColor }, foil && styles.foilActive]}>
           Foil {foil ? '(on)' : '(off)'}
         </Text>
       </TouchableOpacity>
@@ -579,59 +577,26 @@ function CardActions({
 }
 
 function CardPeek({ card, theme }: { card: Card; theme: Theme }) {
-  return (
-    <View style={[styles.peek, { backgroundColor: theme.bg }]}>
-      <CardHeroStatic card={card} theme={theme} compact />
-    </View>
-  );
-}
-
-function CardHeroStatic({ card, theme, compact = false }: { card: Card; theme: Theme; compact?: boolean }) {
   const prices = parsePrices(card.prices);
   const { width: winW, height: winH } = Dimensions.get('window');
   const imgSize = heroImageSize(winW, winH);
   return (
-    <View style={styles.row}>
-      {card.image_uri ? (
-        <Image source={{ uri: card.image_uri }} style={[styles.image, imgSize]} resizeMode="contain" />
-      ) : (
-        <View style={[styles.image, imgSize, { backgroundColor: theme.surfaceAlt }]} />
-      )}
-      <View style={styles.meta}>
-        <Text
-          style={[styles.name, { color: theme.text }]}
-          numberOfLines={compact ? 2 : undefined}
-          ellipsizeMode="tail"
-        >
-          {card.name}
-        </Text>
-        <Text
-          style={[styles.subtitle, { color: theme.textSecondary }]}
-          numberOfLines={compact ? 1 : undefined}
-          ellipsizeMode="tail"
-        >
-          {card.mana_cost}
-          {'  '}
-          {card.type_line}
-        </Text>
-        <Text
-          style={[styles.oracle, { color: theme.textSecondary }]}
-          numberOfLines={compact ? 5 : undefined}
-          ellipsizeMode="tail"
-        >
-          {card.oracle_text}
-        </Text>
-        <View style={styles.prices}>
-          {prices.usd ? (
-            <Text style={[styles.price, { color: theme.accent }]}>${prices.usd}</Text>
-          ) : null}
-          {prices.usd_foil ? (
-            <View style={styles.foilPriceRow}>
-              <Icon name="sparkle" size={12} color={theme.foilAccent} />
-              <Text style={[styles.price, { color: theme.foilAccent }]}>${prices.usd_foil}</Text>
-            </View>
-          ) : null}
-        </View>
+    <View style={[styles.peek, { backgroundColor: theme.bg }]}>
+      <View style={styles.row}>
+        {card.image_uri ? (
+          <Image source={{ uri: card.image_uri }} style={[styles.image, imgSize]} resizeMode="contain" />
+        ) : (
+          <View style={[styles.image, imgSize, { backgroundColor: theme.surfaceAlt }]} />
+        )}
+        <HeroMeta
+          theme={theme}
+          compact
+          name={card.name}
+          mana={card.mana_cost}
+          type={card.type_line}
+          oracle={card.oracle_text}
+          prices={prices}
+        />
       </View>
     </View>
   );

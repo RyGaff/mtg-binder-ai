@@ -20,17 +20,11 @@ import type { CachedCard } from '../../src/db/cards';
 
 // row 64 minHeight + 10*2 padding + 8 marginBottom — keep in sync with CardRow.
 const ROW_HEIGHT = 84;
-
-function keyExtractor(c: CachedCard) {
-  return c.scryfall_id;
-}
-
-function getListItemLayout(_: ArrayLike<CachedCard> | null | undefined, index: number) {
-  return { length: ROW_HEIGHT, offset: ROW_HEIGHT * index, index };
-}
-
 const LIST_PADDING = 8;
 
+const keyExtractor = (c: CachedCard) => c.scryfall_id;
+const getListItemLayout = (_: ArrayLike<CachedCard> | null | undefined, index: number) =>
+  ({ length: ROW_HEIGHT, offset: ROW_HEIGHT * index, index });
 const renderListItem: ListRenderItem<CachedCard> = ({ item }) => <CardRow card={item} />;
 
 export default function SearchScreen() {
@@ -60,13 +54,9 @@ export default function SearchScreen() {
 
   const ListEmpty = useCallback(() => {
     if (isLoading) return null;
-    if (query.trim().length === 0) {
-      return <Text style={[styles.empty, { color: theme.textSecondary }]}>Type to search Scryfall.</Text>;
-    }
-    if (query.trim().length === 1) {
-      return <Text style={[styles.empty, { color: theme.textSecondary }]}>Keep typing…</Text>;
-    }
-    return <Text style={[styles.empty, { color: theme.textSecondary }]}>No results for “{query.trim()}”.</Text>;
+    const q = query.trim();
+    const msg = q.length === 0 ? 'Type to search Scryfall.' : q.length === 1 ? 'Keep typing…' : `No results for “${q}”.`;
+    return <Text style={[styles.empty, { color: theme.textSecondary }]}>{msg}</Text>;
   }, [isLoading, query, theme.textSecondary]);
 
   const isGrid = viewMode === 'grid';
@@ -110,11 +100,7 @@ export default function SearchScreen() {
 const styles = StyleSheet.create({
   screen: { flex: 1 },
   inputRow: { padding: 12 },
-  input: {
-    borderRadius: 8,
-    padding: 12,
-    fontSize: 14,
-  },
+  input: { borderRadius: 8, padding: 12, fontSize: 14 },
   loader: { marginTop: 20 },
   list: { padding: 8 },
   rowLeft: { justifyContent: 'flex-start' },

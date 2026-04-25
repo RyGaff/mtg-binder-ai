@@ -5,10 +5,7 @@ import { useTheme } from '../theme/useTheme';
 import { PressableCardImage } from './PressableCardImage';
 import type { CachedCard } from '../db/cards';
 
-type Props = {
-  card: CachedCard;
-  style?: StyleProp<ViewStyle>;
-};
+type Props = { card: CachedCard; style?: StyleProp<ViewStyle> };
 
 const ASPECT = 488 / 680;
 
@@ -19,16 +16,10 @@ function CardTileImpl({ card, style }: Props) {
     () => router.push(`/card/${card.scryfall_id}`),
     [router, card.scryfall_id],
   );
-
   return (
     <Pressable onPress={navigate} style={[styles.tile, style]}>
       {card.image_uri ? (
-        <PressableCardImage
-          uri={card.image_uri}
-          style={styles.image}
-          onPress={navigate}
-          resizeMode="cover"
-        />
+        <PressableCardImage uri={card.image_uri} style={styles.image} onPress={navigate} resizeMode="cover" />
       ) : (
         <View style={[styles.image, { backgroundColor: theme.surfaceAlt }]} />
       )}

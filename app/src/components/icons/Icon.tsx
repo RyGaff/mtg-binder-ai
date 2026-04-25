@@ -2,44 +2,19 @@ import { memo } from 'react';
 import Svg, { Path, Circle, Rect, Line } from 'react-native-svg';
 
 export type IconName =
-  | 'binder'
-  | 'search'
-  | 'camera'
-  | 'cards'
-  | 'profile'
-  | 'close'
-  | 'check'
-  | 'plus'
-  | 'sparkle'
-  | 'sparkle-outline'
-  | 'clock'
-  | 'pencil'
-  | 'chevron-right';
+  | 'binder' | 'search' | 'camera' | 'cards' | 'profile' | 'close' | 'check'
+  | 'plus' | 'sparkle' | 'sparkle-outline' | 'clock' | 'pencil' | 'chevron-right';
 
-type Props = {
-  name: IconName;
-  size?: number;
-  color?: string;
-  strokeWidth?: number;
-};
+type Props = { name: IconName; size?: number; color?: string; strokeWidth?: number };
 
-// Single-source icon set. All glyphs drawn on a 24x24 canvas, stroke-based
-// so they scale crisply and inherit the caller's color via `color`.
 function IconImpl({ name, size = 24, color = '#fff', strokeWidth = 2 }: Props) {
   const common = {
-    width: size,
-    height: size,
-    viewBox: '0 0 24 24',
-    fill: 'none',
-    stroke: color,
-    strokeWidth,
-    strokeLinecap: 'round' as const,
-    strokeLinejoin: 'round' as const,
+    width: size, height: size, viewBox: '0 0 24 24', fill: 'none', stroke: color,
+    strokeWidth, strokeLinecap: 'round' as const, strokeLinejoin: 'round' as const,
   };
 
   switch (name) {
     case 'binder':
-      // Stack of cards / box outline
       return (
         <Svg {...common}>
           <Rect x={3} y={4} width={18} height={16} rx={2} />
@@ -62,7 +37,6 @@ function IconImpl({ name, size = 24, color = '#fff', strokeWidth = 2 }: Props) {
         </Svg>
       );
     case 'cards':
-      // Two overlapping cards (deck)
       return (
         <Svg {...common}>
           <Rect x={3} y={6} width={12} height={15} rx={2} transform="rotate(-8 9 13.5)" />
@@ -84,11 +58,7 @@ function IconImpl({ name, size = 24, color = '#fff', strokeWidth = 2 }: Props) {
         </Svg>
       );
     case 'check':
-      return (
-        <Svg {...common}>
-          <Path d="M5 12.5l4.5 4.5L19 7.5" />
-        </Svg>
-      );
+      return <Svg {...common}><Path d="M5 12.5l4.5 4.5L19 7.5" /></Svg>;
     case 'plus':
       return (
         <Svg {...common}>
@@ -97,18 +67,13 @@ function IconImpl({ name, size = 24, color = '#fff', strokeWidth = 2 }: Props) {
         </Svg>
       );
     case 'sparkle':
-      // 4-point sparkle, filled
       return (
         <Svg {...common} fill={color} stroke="none">
           <Path d="M12 2 13.6 9 21 12 13.6 15 12 22 10.4 15 3 12 10.4 9z" />
         </Svg>
       );
     case 'sparkle-outline':
-      return (
-        <Svg {...common}>
-          <Path d="M12 2 13.6 9 21 12 13.6 15 12 22 10.4 15 3 12 10.4 9z" />
-        </Svg>
-      );
+      return <Svg {...common}><Path d="M12 2 13.6 9 21 12 13.6 15 12 22 10.4 15 3 12 10.4 9z" /></Svg>;
     case 'clock':
       return (
         <Svg {...common}>
@@ -124,11 +89,7 @@ function IconImpl({ name, size = 24, color = '#fff', strokeWidth = 2 }: Props) {
         </Svg>
       );
     case 'chevron-right':
-      return (
-        <Svg {...common}>
-          <Path d="M9 6l6 6-6 6" />
-        </Svg>
-      );
+      return <Svg {...common}><Path d="M9 6l6 6-6 6" /></Svg>;
   }
 }
 

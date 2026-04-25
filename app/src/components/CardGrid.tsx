@@ -1,11 +1,6 @@
 import { memo, useCallback, useMemo } from 'react';
 import {
-  FlatList,
-  TouchableOpacity,
-  View,
-  Text,
-  StyleSheet,
-  Dimensions,
+  FlatList, TouchableOpacity, View, Text, StyleSheet, Dimensions,
   type ListRenderItem,
 } from 'react-native';
 import { useRouter } from 'expo-router';
@@ -15,19 +10,13 @@ import { Icon } from './icons/Icon';
 import type { CollectionEntryWithCard } from '../db/collection';
 
 const COLS = 3;
-const CARD_WIDTH =
-  (Dimensions.get('window').width - 16 * 2 - 8 * (COLS - 1)) / COLS;
+const CARD_WIDTH = (Dimensions.get('window').width - 16 * 2 - 8 * (COLS - 1)) / COLS;
 const CARD_IMAGE_HEIGHT = CARD_WIDTH * 1.4;
-const ROW_HEIGHT = CARD_IMAGE_HEIGHT + 36 + 8; // image + info + marginBottom
+const ROW_HEIGHT = CARD_IMAGE_HEIGHT + 36 + 8;
 
 type AddButton = { isAddButton: true };
 type GridItem = CollectionEntryWithCard | AddButton;
-
-type Props = {
-  entries: CollectionEntryWithCard[];
-  onAddPress: () => void;
-};
-
+type Props = { entries: CollectionEntryWithCard[]; onAddPress: () => void };
 type Router = ReturnType<typeof useRouter>;
 
 function keyExtractor(item: GridItem) {
@@ -35,13 +24,10 @@ function keyExtractor(item: GridItem) {
 }
 
 function getItemLayout(_: ArrayLike<GridItem> | null | undefined, index: number) {
-  // numColumns=3 means each "row" is ROW_HEIGHT; FlatList calls getItemLayout per item
-  // and uses it for both scrolling and initial layout. Returning per-item is fine.
   return { length: ROW_HEIGHT, offset: ROW_HEIGHT * Math.floor(index / COLS), index };
 }
 
-type AddCardProps = { onPress: () => void };
-const AddCard = memo(function AddCard({ onPress }: AddCardProps) {
+const AddCard = memo(function AddCard({ onPress }: { onPress: () => void }) {
   const theme = useTheme();
   return (
     <TouchableOpacity
@@ -54,20 +40,12 @@ const AddCard = memo(function AddCard({ onPress }: AddCardProps) {
   );
 });
 
-type CollectionCardProps = {
-  entry: CollectionEntryWithCard;
-  router: Router;
-};
 const CollectionCard = memo(
-  function CollectionCard({ entry, router }: CollectionCardProps) {
+  function CollectionCard({ entry, router }: { entry: CollectionEntryWithCard; router: Router }) {
     const theme = useTheme();
     const price = useMemo(() => {
       let prices: { usd?: string; usd_foil?: string } = {};
-      try {
-        prices = JSON.parse(entry.prices || '{}');
-      } catch {
-        prices = {};
-      }
+      try { prices = JSON.parse(entry.prices || '{}'); } catch { prices = {}; }
       return entry.foil ? prices.usd_foil : prices.usd;
     }, [entry.prices, entry.foil]);
 
@@ -77,33 +55,16 @@ const CollectionCard = memo(
     );
 
     return (
-      <TouchableOpacity
-        style={[styles.card, { backgroundColor: theme.surface }]}
-        onPress={navigate}
-      >
+      <TouchableOpacity style={[styles.card, { backgroundColor: theme.surface }]} onPress={navigate}>
         {entry.image_uri ? (
-          <PressableCardImage
-            uri={entry.image_uri}
-            style={styles.image}
-            onPress={navigate}
-          />
+          <PressableCardImage uri={entry.image_uri} style={styles.image} onPress={navigate} />
         ) : (
-          <View
-            style={[
-              styles.image,
-              styles.placeholder,
-              { backgroundColor: theme.surfaceAlt },
-            ]}
-          >
-            <Text style={[styles.placeholderText, { color: theme.textSecondary }]}>
-              {entry.name[0]}
-            </Text>
+          <View style={[styles.image, styles.placeholder, { backgroundColor: theme.surfaceAlt }]}>
+            <Text style={[styles.placeholderText, { color: theme.textSecondary }]}>{entry.name[0]}</Text>
           </View>
         )}
         <View style={styles.info}>
-          <Text style={[styles.name, { color: theme.text }]} numberOfLines={1}>
-            {entry.name}
-          </Text>
+          <Text style={[styles.name, { color: theme.text }]} numberOfLines={1}>{entry.name}</Text>
           <View style={styles.metaRow}>
             <Text style={[styles.meta, { color: theme.textSecondary }]}>×{entry.quantity}</Text>
             {entry.foil && <Icon name="sparkle" size={9} color={theme.foilAccent} />}
@@ -115,26 +76,17 @@ const CollectionCard = memo(
       </TouchableOpacity>
     );
   },
-  (prev, next) =>
-    prev.entry === next.entry &&
-    prev.router === next.router,
+  (prev, next) => prev.entry === next.entry && prev.router === next.router,
 );
 
 export function CardGrid({ entries, onAddPress }: Props) {
   const router = useRouter();
-
-  const data = useMemo<GridItem[]>(
-    () => [...entries, { isAddButton: true }],
-    [entries],
-  );
+  const data = useMemo<GridItem[]>(() => [...entries, { isAddButton: true }], [entries]);
 
   const renderItem = useCallback<ListRenderItem<GridItem>>(
-    ({ item }) => {
-      if ('isAddButton' in item) {
-        return <AddCard onPress={onAddPress} />;
-      }
-      return <CollectionCard entry={item} router={router} />;
-    },
+    ({ item }) => 'isAddButton' in item
+      ? <AddCard onPress={onAddPress} />
+      : <CollectionCard entry={item} router={router} />,
     [router, onAddPress],
   );
 
@@ -168,12 +120,9 @@ const styles = StyleSheet.create({
   metaRow: { flexDirection: 'row', alignItems: 'center', gap: 3, marginTop: 2 },
   meta: { fontSize: 10 },
   addCard: {
-    borderWidth: 1,
-    borderStyle: 'dashed',
-    alignItems: 'center',
-    justifyContent: 'center',
-    gap: 4,
-    height: CARD_IMAGE_HEIGHT + 36,
+    borderWidth: 1, borderStyle: 'dashed',
+    alignItems: 'center', justifyContent: 'center',
+    gap: 4, height: CARD_IMAGE_HEIGHT + 36,
   },
   addLabel: { fontSize: 11 },
 });

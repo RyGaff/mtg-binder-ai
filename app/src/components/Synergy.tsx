@@ -41,6 +41,48 @@ export function Synergy({ card }: Props) {
 
   const edhrecUrl = `https://edhrec.com/${isCommanderEligible(card) ? 'commanders' : 'cards'}/${slugify(card.name)}`;
 
+  function renderBody() {
+    if (isLoading || (retrying && entries.length === 0)) {
+      return <ActivityIndicator color={theme.accent} style={styles.loader} />;
+    }
+    if (isError && entries.length === 0) {
+      return (
+        <TouchableOpacity onPress={() => refetch()} hitSlop={8}>
+          <Text style={[styles.empty, { color: theme.textSecondary }]}>
+            Could not load {heading.toLowerCase()}. Tap to retry.
+          </Text>
+        </TouchableOpacity>
+      );
+    }
+    if (entries.length === 0) {
+      return <Text style={[styles.empty, { color: theme.textSecondary }]}>No EDHREC data for this card</Text>;
+    }
+    return (
+      <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.strip}>
+        {entries.map((s) => (
+          <TouchableOpacity
+            key={s.name}
+            style={styles.cardItem}
+            onPress={() => openEntry(s)}
+            accessibilityLabel={`${s.name}, ${metric} ${s.score} percent`}
+          >
+            <View>
+              {s.image_uri ? (
+                <PressableCardImage uri={s.image_uri} style={[styles.cardImage, { backgroundColor: theme.surface }]} onPress={() => openEntry(s)} />
+              ) : (
+                <View style={[styles.cardImage, { backgroundColor: theme.surfaceAlt }]} />
+              )}
+              <View style={[styles.badge, { backgroundColor: theme.accent }]}>
+                <Text style={[styles.badgeText, { color: theme.text }]}>{s.score}%</Text>
+              </View>
+            </View>
+            <Text style={[styles.cardName, { color: theme.text }]} numberOfLines={1}>{s.name}</Text>
+          </TouchableOpacity>
+        ))}
+      </ScrollView>
+    );
+  }
+
   return (
     <View style={[styles.container, { backgroundColor: theme.surface }]}>
       <View style={styles.headerRow}>
@@ -51,75 +93,21 @@ export function Synergy({ card }: Props) {
           </Text>
         </TouchableOpacity>
       </View>
-
-      {isLoading || (retrying && entries.length === 0) ? (
-        <ActivityIndicator color={theme.accent} style={styles.loader} />
-      ) : isError && entries.length === 0 ? (
-        <TouchableOpacity onPress={() => refetch()} hitSlop={8}>
-          <Text style={[styles.empty, { color: theme.textSecondary }]}>
-            Could not load {heading.toLowerCase()}. Tap to retry.
-          </Text>
-        </TouchableOpacity>
-      ) : entries.length === 0 ? (
-        <Text style={[styles.empty, { color: theme.textSecondary }]}>No EDHREC data for this card</Text>
-      ) : (
-        <ScrollView
-          horizontal
-          showsHorizontalScrollIndicator={false}
-          contentContainerStyle={styles.strip}
-        >
-          {entries.map((s) => (
-            <TouchableOpacity
-              key={s.name}
-              style={styles.cardItem}
-              onPress={() => openEntry(s)}
-              accessibilityLabel={`${s.name}, ${metric} ${s.score} percent`}
-            >
-              <View>
-                {s.image_uri ? (
-                  <PressableCardImage
-                    uri={s.image_uri}
-                    style={[styles.cardImage, { backgroundColor: theme.surface }]}
-                    onPress={() => openEntry(s)}
-                  />
-                ) : (
-                  <View style={[styles.cardImage, { backgroundColor: theme.surfaceAlt }]} />
-                )}
-                <View style={[styles.badge, { backgroundColor: theme.accent }]}>
-                  <Text style={[styles.badgeText, { color: theme.text }]}>{s.score}%</Text>
-                </View>
-              </View>
-              <Text style={[styles.cardName, { color: theme.text }]} numberOfLines={1}>{s.name}</Text>
-            </TouchableOpacity>
-          ))}
-        </ScrollView>
-      )}
+      {renderBody()}
     </View>
   );
 }
 
 const styles = StyleSheet.create({
   container: { borderRadius: 8, padding: 12, marginTop: 12 },
-  headerRow: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    marginBottom: 8,
-  },
+  headerRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 },
   heading: { fontWeight: '700', fontSize: 13 },
   attribution: { fontSize: 10 },
   loader: { marginVertical: 12 },
   strip: { gap: 8 },
   cardItem: { width: 100, alignItems: 'center' },
   cardImage: { width: 100, height: 140, borderRadius: 6 },
-  badge: {
-    position: 'absolute',
-    top: 4,
-    right: 4,
-    borderRadius: 10,
-    paddingHorizontal: 6,
-    paddingVertical: 2,
-  },
+  badge: { position: 'absolute', top: 4, right: 4, borderRadius: 10, paddingHorizontal: 6, paddingVertical: 2 },
   badgeText: { fontSize: 10, fontWeight: '700' },
   cardName: { fontSize: 10, fontWeight: '600', marginTop: 4, textAlign: 'center', width: 100 },
   empty: { fontSize: 12 },

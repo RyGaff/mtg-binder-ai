@@ -33,11 +33,12 @@ type EdhrecCardView = {
   images?: EdhrecImageField[];
 };
 
+type EdhrecPage = {
+  container?: { json_dict?: { cardlists?: Array<{ cardviews?: EdhrecCardView[] }> } };
+};
+
 function pickImageUri(cv: EdhrecCardView): string {
-  const candidates: EdhrecImageField[] = [
-    ...(cv.image_uris ?? []),
-    ...(cv.images ?? []),
-  ];
+  const candidates = [...(cv.image_uris ?? []), ...(cv.images ?? [])];
   for (const c of candidates) {
     if (typeof c === 'string' && c) return c;
     if (c && typeof c === 'object') {
@@ -48,21 +49,10 @@ function pickImageUri(cv: EdhrecCardView): string {
   return '';
 }
 
-function scryfallImageByName(name: string): string {
-  return `https://api.scryfall.com/cards/named?fuzzy=${encodeURIComponent(name)}&format=image&version=normal`;
-}
-
-function scryfallImageById(id: string): string {
-  return `https://api.scryfall.com/cards/${id}?format=image&version=normal`;
-}
-
-type EdhrecPage = {
-  container?: {
-    json_dict?: {
-      cardlists?: Array<{ cardviews?: EdhrecCardView[] }>;
-    };
-  };
-};
+const scryfallImageByName = (name: string) =>
+  `https://api.scryfall.com/cards/named?fuzzy=${encodeURIComponent(name)}&format=image&version=normal`;
+const scryfallImageById = (id: string) =>
+  `https://api.scryfall.com/cards/${id}?format=image&version=normal`;
 
 export function slugify(name: string): string {
   return name
@@ -88,13 +78,14 @@ function wait(ms: number, signal?: AbortSignal): Promise<void> {
     const t = setTimeout(resolve, ms);
     signal?.addEventListener('abort', () => {
       clearTimeout(t);
-      reject(new DOMException('Aborted', 'AbortError'));
+      const err = new Error('Aborted');
+      err.name = 'AbortError';
+      reject(err);
     });
   });
 }
 
-/** Fetches EDHREC JSON with exponential-backoff retries on transient failures.
- *  404 → null (card legitimately not indexed). Final failure throws. */
+/** Fetches EDHREC JSON with exponential-backoff retries. 404 → null. Final failure throws. */
 async function fetchJson(url: string, signal?: AbortSignal): Promise<EdhrecPage | null> {
   let lastErr: unknown;
   for (let attempt = 0; attempt < MAX_ATTEMPTS; attempt++) {
@@ -106,9 +97,7 @@ async function fetchJson(url: string, signal?: AbortSignal): Promise<EdhrecPage 
     } catch (err) {
       if (signal?.aborted) throw err;
       lastErr = err;
-      if (attempt < MAX_ATTEMPTS - 1) {
-        await wait(BASE_DELAY_MS * 2 ** attempt, signal);
-      }
+      if (attempt < MAX_ATTEMPTS - 1) await wait(BASE_DELAY_MS * 2 ** attempt, signal);
     }
   }
   throw lastErr;
@@ -126,18 +115,16 @@ function scoreFor(cv: EdhrecCardView, metric: SynergyMetric): number | null {
 
 function extractEntries(data: EdhrecPage | null, metric: SynergyMetric): SynergyEntry[] {
   if (!data) return [];
-  const cardlists = data.container?.json_dict?.cardlists ?? [];
   const out: SynergyEntry[] = [];
   const seen = new Set<string>();
-  for (const list of cardlists) {
+  for (const list of data.container?.json_dict?.cardlists ?? []) {
     for (const cv of list.cardviews ?? []) {
       if (!cv.name || seen.has(cv.name)) continue;
       const score = scoreFor(cv, metric);
       if (score === null) continue;
       seen.add(cv.name);
       const image_uri =
-        pickImageUri(cv) ||
-        (cv.id ? scryfallImageById(cv.id) : scryfallImageByName(cv.name));
+        pickImageUri(cv) || (cv.id ? scryfallImageById(cv.id) : scryfallImageByName(cv.name));
       out.push({
         name: cv.name,
         score,
@@ -151,17 +138,11 @@ function extractEntries(data: EdhrecPage | null, metric: SynergyMetric): Synergy
 }
 
 export async function fetchEdhrecSynergies(card: CachedCard, signal?: AbortSignal): Promise<SynergyResult> {
-  const slug = slugify(card.name);
   const commander = isCommanderEligible(card);
   const metric: SynergyMetric = commander ? 'synergy' : 'inclusion';
-  const url = commander
-    ? `${BASE}/commanders/${slug}.json`
-    : `${BASE}/cards/${slug}.json`;
+  const url = `${BASE}/${commander ? 'commanders' : 'cards'}/${slugify(card.name)}.json`;
 
   const data = await fetchJson(url, signal);
-  const entries = extractEntries(data, metric)
-    .sort((a, b) => b.score - a.score)
-    .slice(0, 30);
-
+  const entries = extractEntries(data, metric).sort((a, b) => b.score - a.score).slice(0, 30);
   return { metric, entries };
 }

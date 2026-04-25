@@ -21,14 +21,14 @@ const queryClient = new QueryClient({
 
 function AppInit() {
   const setEmbeddingStatus = useStore((s) => s.setEmbeddingStatus);
-
   useEffect(() => {
     getDb();
     checkAndDownload(setEmbeddingStatus);
   }, [setEmbeddingStatus]);
-
   return null;
 }
+
+const MODAL_OPTS = { presentation: 'modal', headerShown: false, gestureEnabled: true } as const;
 
 export default function RootLayout() {
   return (
@@ -36,14 +36,7 @@ export default function RootLayout() {
       <AppInit />
       <Stack>
         <Stack.Screen name="(tabs)" options={{ headerShown: false }} />
-        <Stack.Screen
-          name="card/[id]"
-          options={{
-            presentation: 'modal',
-            headerShown: false,
-            gestureEnabled: false,
-          }}
-        />
+        <Stack.Screen name="card/[id]" options={{ ...MODAL_OPTS, gestureEnabled: false }} />
         <Stack.Screen
           name="deck/[id]"
           options={{
@@ -53,22 +46,8 @@ export default function RootLayout() {
             headerTintColor: '#4ecdc4',
           }}
         />
-        <Stack.Screen
-          name="profile"
-          options={{
-            presentation: 'modal',
-            headerShown: false,
-            gestureEnabled: true,
-          }}
-        />
-        <Stack.Screen
-          name="theme-editor"
-          options={{
-            presentation: 'modal',
-            headerShown: false,
-            gestureEnabled: true,
-          }}
-        />
+        <Stack.Screen name="profile" options={MODAL_OPTS} />
+        <Stack.Screen name="theme-editor" options={MODAL_OPTS} />
       </Stack>
     </QueryClientProvider>
   );

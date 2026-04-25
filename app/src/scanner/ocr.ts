@@ -4,6 +4,7 @@ import { detectCardCorners, type CardCorners } from '../../modules/card-detector
 import { fetchCardBySetNumber, fetchCardByName } from '../api/scryfall';
 import { resolveCardById } from '../api/cards';
 import type { CachedCard } from '../db/cards';
+import { findCardByImage, ImageMatch } from '../embeddings/imageSearch';
 
 // ── Types ────────────────────────────────────────────────────────────────────
 
@@ -12,7 +13,7 @@ export type ParsedCard = { setCode: string; collectorNumber: string };
 export type ScanResult = {
   strategy:  'set_number' | 'name';
   card:      CachedCard;
-  corners:   import('../../modules/card-detector/src').CardCorners;
+  corners:   CardCorners;
   imageW:    number;
   imageH:    number;
   ocrText:   string;
@@ -20,7 +21,7 @@ export type ScanResult = {
 };
 
 export type ScanProgress =
-  | { step: 'corners_detected'; corners: import('../../modules/card-detector/src').CardCorners; imageW: number; imageH: number }
+  | { step: 'corners_detected'; corners: CardCorners; imageW: number; imageH: number }
   | { step: 'bl_ocr_done';     blText: string }
   | { step: 'bl_parsed';       parsed: ParsedCard | null }
   | { step: 'fetching';        query: string }
@@ -44,8 +45,7 @@ const SKIP_TOKENS = new Set([
 async function resolveToFileUri(uri: string): Promise<string> {
   if (uri.startsWith('file://') || uri.startsWith('/')) return uri;
   const dest = new File(Paths.cache, `scan_ocr_${Date.now()}.jpg`);
-  const source = new File(uri);
-  source.copy(dest);
+  new File(uri).copy(dest);
   return dest.uri;
 }
 
@@ -54,8 +54,7 @@ async function runOcr(uri: string): Promise<string> {
   if (!TextRecognition || typeof TextRecognition.recognize !== 'function') {
     throw new Error('OCR module not available. Run `expo run:ios` to link native dependencies.');
   }
-  const resolvedUri = await resolveToFileUri(uri);
-  const lines: string[] = await TextRecognition.recognize(resolvedUri);
+  const lines: string[] = await TextRecognition.recognize(await resolveToFileUri(uri));
   return lines.join('\n');
 }
 
@@ -71,11 +70,8 @@ export function parseSetAndNumber(text: string): ParsedCard | null {
   let setCode = '';
   for (const token of tokens) {
     if (!collectorNumber) {
-      if (/^\d+$/.test(token)) {
-        collectorNumber = token;
-      } else if (/^\d+\/\d+$/.test(token)) {
-        collectorNumber = token.split('/')[0];
-      }
+      if (/^\d+$/.test(token)) collectorNumber = token;
+      else if (/^\d+\/\d+$/.test(token)) collectorNumber = token.split('/')[0];
     }
     if (!setCode && token.length === 3 && /^[A-Z]+$/.test(token) && !SKIP_TOKENS.has(token)) {
       setCode = token;
@@ -95,6 +91,19 @@ export function parseSetAndNumber(text: string): ParsedCard | null {
 }
 
 // ── Public: scanCard ─────────────────────────────────────────────────────────
+
+// Card edge length in image pixels from normalized corners.
+function edgePx(a: { x: number; y: number }, b: { x: number; y: number }, w: number, h: number): number {
+  return Math.sqrt(((b.x - a.x) * w) ** 2 + ((b.y - a.y) * h) ** 2);
+}
+
+async function cropRegion(
+  uri: string,
+  originX: number, originY: number, width: number, height: number,
+): Promise<string> {
+  const r = await ImageManipulator.manipulateAsync(uri, [{ crop: { originX, originY, width, height } }]);
+  return r.uri;
+}
 
 export async function scanCard(
   uri: string,
@@ -133,27 +142,15 @@ export async function scanCard(
   let blCropUri: string;
   if (useRectified) {
     const c = CROP_BOTTOM_LEFT;
-    const result = await ImageManipulator.manipulateAsync(cropSource, [
-      { crop: { originX: c.x, originY: c.y, width: c.w, height: c.h } },
-    ]);
-    blCropUri = result.uri;
+    blCropUri = await cropRegion(cropSource, c.x, c.y, c.w, c.h);
   } else {
-    const cardWidthPx = Math.sqrt(
-      Math.pow((corners.bottomRight.x - corners.bottomLeft.x) * imgW, 2) +
-      Math.pow((corners.bottomRight.y - corners.bottomLeft.y) * imgH, 2)
-    );
-    const cardHeightPx = Math.sqrt(
-      Math.pow((corners.bottomLeft.x - corners.topLeft.x) * imgW, 2) +
-      Math.pow((corners.bottomLeft.y - corners.topLeft.y) * imgH, 2)
-    );
+    const cardWidthPx = edgePx(corners.bottomLeft, corners.bottomRight, imgW, imgH);
+    const cardHeightPx = edgePx(corners.topLeft, corners.bottomLeft, imgW, imgH);
     const blOriginX = clamp(Math.floor(corners.bottomLeft.x * imgW), 0, imgW - 1);
     const blOriginY = clamp(Math.floor(corners.bottomLeft.y * imgH - 0.075 * cardHeightPx), 0, imgH - 1);
     const blWidth   = clamp(Math.ceil(0.45 * cardWidthPx),  1, imgW - blOriginX);
     const blHeight  = clamp(Math.ceil(0.075 * cardHeightPx), 1, imgH - blOriginY);
-    const blCrop = await ImageManipulator.manipulateAsync(uri, [
-      { crop: { originX: blOriginX, originY: blOriginY, width: blWidth, height: blHeight } },
-    ]);
-    blCropUri = blCrop.uri;
+    blCropUri = await cropRegion(uri, blOriginX, blOriginY, blWidth, blHeight);
   }
 
   const blText = await runOcr(blCropUri);
@@ -181,36 +178,21 @@ export async function scanCard(
   let nameCropUri: string;
   if (useRectified) {
     const c = CROP_NAME;
-    const result = await ImageManipulator.manipulateAsync(cropSource, [
-      { crop: { originX: c.x, originY: c.y, width: c.w, height: c.h } },
-    ]);
-    nameCropUri = result.uri;
+    nameCropUri = await cropRegion(cropSource, c.x, c.y, c.w, c.h);
   } else {
-    const cardWidthPx = Math.sqrt(
-      Math.pow((corners.bottomRight.x - corners.bottomLeft.x) * imgW, 2) +
-      Math.pow((corners.bottomRight.y - corners.bottomLeft.y) * imgH, 2)
-    );
-    const cardHeightPx = Math.sqrt(
-      Math.pow((corners.bottomLeft.x - corners.topLeft.x) * imgW, 2) +
-      Math.pow((corners.bottomLeft.y - corners.topLeft.y) * imgH, 2)
-    );
+    const cardWidthPx = edgePx(corners.bottomLeft, corners.bottomRight, imgW, imgH);
+    const cardHeightPx = edgePx(corners.topLeft, corners.bottomLeft, imgW, imgH);
     const tlOriginX = clamp(Math.floor(corners.topLeft.x * imgW), 0, imgW - 1);
     const tlOriginY = clamp(Math.floor(corners.topLeft.y * imgH), 0, imgH - 1);
     const tlWidth   = clamp(Math.ceil(0.65 * cardWidthPx),  1, imgW - tlOriginX);
     const tlHeight  = clamp(Math.ceil(0.12 * cardHeightPx), 1, imgH - tlOriginY);
-    const tlCrop = await ImageManipulator.manipulateAsync(uri, [
-      { crop: { originX: tlOriginX, originY: tlOriginY, width: tlWidth, height: tlHeight } },
-    ]);
-    nameCropUri = tlCrop.uri;
+    nameCropUri = await cropRegion(uri, tlOriginX, tlOriginY, tlWidth, tlHeight);
   }
 
   const tlText = await runOcr(nameCropUri);
   onProgress?.({ step: 'name_ocr_done', nameText: tlText });
 
-  const nameLine = tlText
-    .split('\n')
-    .find(l => l.trim().length > 0 && !/^\d+$/.test(l.trim()));
-
+  const nameLine = tlText.split('\n').find(l => l.trim().length > 0 && !/^\d+$/.test(l.trim()));
   if (!nameLine) throw new Error('No text found in name region');
 
   onProgress?.({ step: 'fetching', query: `name: ${nameLine.trim()}` });
@@ -220,8 +202,6 @@ export async function scanCard(
 }
 
 // ── Public: scanCardByImage ───────────────────────────────────────────────────
-
-import { findCardByImage, ImageMatch } from '../embeddings/imageSearch';
 
 /** Kill-switch for the image-embedding identification path. When
  *  false, scan.tsx skips scanCardByImage and falls straight through to
@@ -234,7 +214,7 @@ export const EMBEDDING_SCAN_ENABLED = false;
 /** Threshold above which we auto-commit the top-1 match. */
 export const MATCH_ACCEPT = 0.75;
 /** Threshold below which we reject the match and fall back to OCR. */
-const MATCH_MIN    = 0.55;
+const MATCH_MIN = 0.55;
 
 export type ImageScanResult = {
   strategy: 'image';
@@ -254,8 +234,7 @@ export type ImageScanResult = {
  */
 export async function scanCardByImage(rectifiedUri: string): Promise<ImageScanResult | null> {
   const match = await findCardByImage(rectifiedUri);
-  if (!match) return null;
-  if (match.score < MATCH_MIN) return null;
+  if (!match || match.score < MATCH_MIN) return null;
   const card = await resolveCardById(match.scryfallId);
   return { strategy: 'image', match, card };
 }

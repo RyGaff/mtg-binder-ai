@@ -67,9 +67,7 @@ export async function detectCardCorners(imageUri: string): Promise<CardCorners |
     const statStr = raw.stats
       ? ` [cont=${s.contoursTotal} 4v=${s.passed4Vertex} area=${s.passedMinArea} conv=${s.passedConvex} ang=${s.passedAngles} AR=${s.passedAR}]`
       : '';
-    const pathStr = raw.resolvedPath
-      ? ` path=${raw.resolvedPath} exists=${raw.fileExists}`
-      : '';
+    const pathStr = raw.resolvedPath ? ` path=${raw.resolvedPath} exists=${raw.fileExists}` : '';
     throw new Error(`Photo detection failed: ${raw._error}${statStr}${pathStr}`);
   }
   return parseRaw(raw);
@@ -97,37 +95,34 @@ export type FrameDebug = {
   stats:       DetectionStats | null;
 };
 
+const EMPTY_DEBUG: FrameDebug = { pixelFormat: null, frameW: 0, frameH: 0, stats: null };
+
 export function detectCardCornersInFrame(
   frame: Frame,
   plugin: FrameProcessorPlugin,
 ): { corners: CardCorners | null; debug: FrameDebug } {
   'worklet';
   const result = plugin.call(frame) as Record<string, unknown> | null;
-  if (!result) {
-    return { corners: null, debug: { pixelFormat: null, frameW: 0, frameH: 0, stats: null } };
-  }
+  if (!result) return { corners: null, debug: EMPTY_DEBUG };
+
   const rawStats = result.stats as Record<string, number> | undefined;
-  const stats: DetectionStats | null = rawStats
-    ? {
-        medianLuma:    rawStats.medianLuma    ?? 0,
-        edgePixels:    rawStats.edgePixels    ?? 0,
-        contoursTotal: rawStats.contoursTotal ?? 0,
-        passed4Vertex: rawStats.passed4Vertex ?? 0,
-        passedMinArea: rawStats.passedMinArea ?? 0,
-        passedConvex:  rawStats.passedConvex  ?? 0,
-        passedAngles:  rawStats.passedAngles  ?? 0,
-        passedAR:      rawStats.passedAR      ?? 0,
-      }
-    : null;
+  const stats: DetectionStats | null = rawStats ? {
+    medianLuma:    rawStats.medianLuma    ?? 0,
+    edgePixels:    rawStats.edgePixels    ?? 0,
+    contoursTotal: rawStats.contoursTotal ?? 0,
+    passed4Vertex: rawStats.passed4Vertex ?? 0,
+    passedMinArea: rawStats.passedMinArea ?? 0,
+    passedConvex:  rawStats.passedConvex  ?? 0,
+    passedAngles:  rawStats.passedAngles  ?? 0,
+    passedAR:      rawStats.passedAR      ?? 0,
+  } : null;
   const debug: FrameDebug = {
     pixelFormat: (result.pixelFormat as string) ?? null,
     frameW:      (result.frameW as number) ?? 0,
     frameH:      (result.frameH as number) ?? 0,
     stats,
   };
-  if (result._debug) {
-    return { corners: null, debug };
-  }
+  if (result._debug) return { corners: null, debug };
   return {
     corners: {
       topLeft:     { x: result.topLeftX     as number, y: result.topLeftY     as number },

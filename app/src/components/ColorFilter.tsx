@@ -7,12 +7,8 @@ export type ColorFilter = 'W' | 'U' | 'B' | 'R' | 'G' | 'C' | 'all';
 
 const COLORS: { key: ColorFilter; label: string }[] = [
   { key: 'all', label: 'All' },
-  { key: 'W', label: 'W' },
-  { key: 'U', label: 'U' },
-  { key: 'B', label: 'B' },
-  { key: 'R', label: 'R' },
-  { key: 'G', label: 'G' },
-  { key: 'C', label: 'C' },
+  { key: 'W', label: 'W' }, { key: 'U', label: 'U' }, { key: 'B', label: 'B' },
+  { key: 'R', label: 'R' }, { key: 'G', label: 'G' }, { key: 'C', label: 'C' },
 ];
 
 type Props = { active: ColorFilter; onChange: (c: ColorFilter) => void };
@@ -41,20 +37,23 @@ export function ColorFilter({ active, onChange }: Props) {
           <View style={[styles.sheet, { backgroundColor: theme.surface }]}>
             <Text style={[styles.title, { color: theme.text }]}>Filter by Color</Text>
             <View style={styles.grid}>
-              {COLORS.map(({ key, label }) => (
-                <TouchableOpacity
-                  key={key}
-                  style={[styles.chip, { backgroundColor: active === key ? theme.accent : theme.surfaceAlt }]}
-                  onPress={() => { onChange(key); setOpen(false); }}
-                  accessibilityRole="button"
-                  accessibilityState={{ selected: active === key }}
-                  accessibilityLabel={label}
-                >
-                  <Text style={[styles.chipText, { color: active === key ? theme.text : theme.textSecondary }]}>
-                    {label}
-                  </Text>
-                </TouchableOpacity>
-              ))}
+              {COLORS.map(({ key, label }) => {
+                const selected = active === key;
+                return (
+                  <TouchableOpacity
+                    key={key}
+                    style={[styles.chip, { backgroundColor: selected ? theme.accent : theme.surfaceAlt }]}
+                    onPress={() => { onChange(key); setOpen(false); }}
+                    accessibilityRole="button"
+                    accessibilityState={{ selected }}
+                    accessibilityLabel={label}
+                  >
+                    <Text style={[styles.chipText, { color: selected ? theme.text : theme.textSecondary }]}>
+                      {label}
+                    </Text>
+                  </TouchableOpacity>
+                );
+              })}
             </View>
           </View>
         </TouchableOpacity>
@@ -78,13 +77,10 @@ const styles = StyleSheet.create({
   title: { fontSize: font.subhead, fontWeight: '700', marginBottom: spacing.lg },
   grid: { flexDirection: 'row', flexWrap: 'wrap', gap: spacing.sm + 2, justifyContent: 'center' },
   chip: {
-    minWidth: MIN_TOUCH,
-    minHeight: MIN_TOUCH,
-    paddingHorizontal: spacing.lg,
-    paddingVertical: spacing.sm + 2,
+    minWidth: MIN_TOUCH, minHeight: MIN_TOUCH,
+    paddingHorizontal: spacing.lg, paddingVertical: spacing.sm + 2,
     borderRadius: radius.lg,
-    alignItems: 'center',
-    justifyContent: 'center',
+    alignItems: 'center', justifyContent: 'center',
   },
   chipText: { fontSize: font.body, fontWeight: '600' },
 });

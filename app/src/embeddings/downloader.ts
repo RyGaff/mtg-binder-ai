@@ -6,16 +6,9 @@ import {
 } from './parser';
 
 /**
- * URL of the JSON manifest.
- *
- * Hosted via GitHub Releases on the `mtg-binder-ai` repo — bump the release
- * tag when shipping new embeddings and the app will download on next launch.
- *
- * v1 shape (legacy):   { "version": "YYYY-MM-DD", "url": "https://..." }
- * v2 shape (optional): also includes
- *   "image_embeddings":       { url, version, bytes, sha256 }
- *   "image_encoder_ios":      { ... }
- *   "image_encoder_android":  { ... }
+ * Hosted via GitHub Releases — bump tag when shipping new embeddings.
+ * v1 shape: { version, url }
+ * v2 shape also includes: image_embeddings, image_encoder_ios, image_encoder_android
  */
 const MANIFEST_URL =
   'https://github.com/RyGaff/mtg-binder-ai/releases/download/embeddings-v2/manifest.json';
@@ -23,10 +16,8 @@ const MANIFEST_URL =
 type ManifestEntry = { url: string; version: string; bytes?: number; sha256?: string };
 
 type Manifest = {
-  // v1 legacy top-level fields — still used for text embeddings
   version?: string;
   url?: string;
-  // v2 optional fields
   image_embeddings?: ManifestEntry;
   image_encoder_ios?: ManifestEntry;
   image_encoder_android?: ManifestEntry;
@@ -34,14 +25,13 @@ type Manifest = {
 
 type EmbeddingStatus = 'idle' | 'downloading' | 'error';
 
-/**
- * Fetch the manifest and download both text embeddings (legacy) and image
- * embeddings (optional v2) if newer versions are available. Status reflects
- * the TEXT download — image download runs in parallel and reports its own
- * status via a separate setter if desired.
- */
+async function fetchManifest(): Promise<Manifest | null> {
+  const response = await fetch(MANIFEST_URL);
+  return response.ok ? (await response.json() as Manifest) : null;
+}
+
 export async function checkAndDownload(
-  setStatus: (status: EmbeddingStatus) => void
+  setStatus: (status: EmbeddingStatus) => void,
 ): Promise<void> {
   try {
     const embeddingsFile = getEmbeddingsFile();
@@ -49,18 +39,13 @@ export async function checkAndDownload(
 
     if (embeddingsFile.exists && localVersion) {
       setStatus('idle');
-      // Run both update checks silently in background
       checkForUpdate(localVersion).catch(() => {});
       checkAndDownloadImage(() => {}).catch(() => {});
       return;
     }
 
-    const response = await fetch(MANIFEST_URL);
-    if (!response.ok) {
-      setStatus('error');
-      return;
-    }
-    const manifest: Manifest = await response.json();
+    const manifest = await fetchManifest();
+    if (!manifest) { setStatus('error'); return; }
 
     if (manifest.version === (await getLocalVersion()) && embeddingsFile.exists) {
       setStatus('idle');
@@ -68,10 +53,7 @@ export async function checkAndDownload(
       return;
     }
 
-    if (!manifest.version || !manifest.url) {
-      setStatus('error');
-      return;
-    }
+    if (!manifest.version || !manifest.url) { setStatus('error'); return; }
 
     setStatus('downloading');
     await File.downloadFileAsync(manifest.url, embeddingsFile, { idempotent: true });
@@ -79,7 +61,6 @@ export async function checkAndDownload(
     clearEmbeddingCache();
     setStatus('idle');
 
-    // Fire image download in the background — don't block text-embeddings UI.
     checkAndDownloadImage(() => {}).catch(() => {});
   } catch (e) {
     console.log('[embeddings] checkAndDownload error:', e);
@@ -87,34 +68,19 @@ export async function checkAndDownload(
   }
 }
 
-/**
- * Check the manifest for an `image_embeddings` entry and download if the
- * local copy is stale or missing. Safe to call when the manifest omits the
- * entry — simply sets status to 'idle' and returns.
- */
 export async function checkAndDownloadImage(
-  setStatus: (status: EmbeddingStatus) => void
+  setStatus: (status: EmbeddingStatus) => void,
 ): Promise<void> {
   try {
-    const response = await fetch(MANIFEST_URL);
-    if (!response.ok) {
-      setStatus('error');
-      return;
-    }
-    const manifest: Manifest = await response.json();
+    const manifest = await fetchManifest();
+    if (!manifest) { setStatus('error'); return; }
     const entry = manifest.image_embeddings;
-    if (!entry) {
-      setStatus('idle');
-      return;
-    }
+    if (!entry) { setStatus('idle'); return; }
 
     const file = getImageEmbeddingsFile();
     const versionFile = getImageVersionFile();
     const local = await readVersion(versionFile);
-    if (file.exists && local === entry.version) {
-      setStatus('idle');
-      return;
-    }
+    if (file.exists && local === entry.version) { setStatus('idle'); return; }
 
     console.log(`[embeddings:image] downloading ${entry.version}`);
     setStatus('downloading');
@@ -130,8 +96,7 @@ export async function checkAndDownloadImage(
 
 async function getLocalVersion(): Promise<string | null> {
   const versionFile = getVersionFile();
-  if (!versionFile.exists) return null;
-  return versionFile.text();
+  return versionFile.exists ? versionFile.text() : null;
 }
 
 async function readVersion(f: File): Promise<string | null> {
@@ -139,13 +104,9 @@ async function readVersion(f: File): Promise<string | null> {
   try { return (await f.text()).trim() || null; } catch { return null; }
 }
 
-/** Silently check for a newer text-embeddings version and download in background. */
 async function checkForUpdate(localVersion: string): Promise<void> {
-  const response = await fetch(MANIFEST_URL);
-  if (!response.ok) return;
-  const manifest: Manifest = await response.json();
-  if (!manifest.version || manifest.version === localVersion) return;
-  if (!manifest.url) return;
+  const manifest = await fetchManifest();
+  if (!manifest || !manifest.version || manifest.version === localVersion || !manifest.url) return;
   await File.downloadFileAsync(manifest.url, getEmbeddingsFile(), { idempotent: true });
   getVersionFile().write(manifest.version);
   clearEmbeddingCache();

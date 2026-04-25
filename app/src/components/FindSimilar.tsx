@@ -27,50 +27,51 @@ export function FindSimilar({ card }: Props) {
     router.replace(`/card/${scryfallId}`);
   }, [router]);
 
-  return (
-    <View style={[styles.container, { backgroundColor: theme.surface }]}>
-      <Text style={[styles.heading, { color: theme.accent }]}>Similar Cards</Text>
-
-      {embeddingStatus === 'downloading' ? (
+  function renderBody() {
+    if (embeddingStatus === 'downloading') {
+      return (
         <View style={styles.downloadingRow}>
           <ActivityIndicator color={theme.accent} size="small" />
           <Text style={[styles.downloadingText, { color: theme.textSecondary }]}>Downloading embeddings...</Text>
         </View>
-      ) : isLoading ? (
-        <ActivityIndicator color={theme.accent} style={styles.loader} />
-      ) : isError ? (
-        <Text style={[styles.empty, { color: theme.textSecondary }]}>Could not load similar cards</Text>
-      ) : similar.length === 0 ? (
-        <Text style={[styles.empty, { color: theme.textSecondary }]}>No similar cards found</Text>
-      ) : (
-        <ScrollView
-          horizontal
-          showsHorizontalScrollIndicator={false}
-          contentContainerStyle={styles.strip}
-        >
-          {similar.map(c => (
-            <TouchableOpacity
-              key={c.scryfall_id}
-              style={[styles.cardItem, { width: tileSize.width }]}
-              onPress={() => openCard(c.scryfall_id)}
-              accessibilityRole="button"
-              accessibilityLabel={c.name}
-            >
-              {c.image_uri ? (
-                <PressableCardImage
-                  uri={c.image_uri}
-                  style={[styles.cardImage, { width: tileSize.width, height: tileSize.imageHeight, backgroundColor: theme.surface }]}
-                  onPress={() => openCard(c.scryfall_id)}
-                />
-              ) : (
-                <View style={[styles.cardImage, { width: tileSize.width, height: tileSize.imageHeight, backgroundColor: theme.surfaceAlt }]} />
-              )}
-              <Text style={[styles.cardName, { color: theme.text, width: tileSize.width }]} numberOfLines={1} ellipsizeMode="tail">{c.name}</Text>
-              <Text style={[styles.cardMana, { color: theme.textSecondary }]} numberOfLines={1}>{c.mana_cost}</Text>
-            </TouchableOpacity>
-          ))}
-        </ScrollView>
-      )}
+      );
+    }
+    if (isLoading) return <ActivityIndicator color={theme.accent} style={styles.loader} />;
+    if (isError) return <Text style={[styles.empty, { color: theme.textSecondary }]}>Could not load similar cards</Text>;
+    if (similar.length === 0) return <Text style={[styles.empty, { color: theme.textSecondary }]}>No similar cards found</Text>;
+
+    const imgStyle = { width: tileSize.width, height: tileSize.imageHeight };
+    return (
+      <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.strip}>
+        {similar.map(c => (
+          <TouchableOpacity
+            key={c.scryfall_id}
+            style={[styles.cardItem, { width: tileSize.width }]}
+            onPress={() => openCard(c.scryfall_id)}
+            accessibilityRole="button"
+            accessibilityLabel={c.name}
+          >
+            {c.image_uri ? (
+              <PressableCardImage
+                uri={c.image_uri}
+                style={[styles.cardImage, imgStyle, { backgroundColor: theme.surface }]}
+                onPress={() => openCard(c.scryfall_id)}
+              />
+            ) : (
+              <View style={[styles.cardImage, imgStyle, { backgroundColor: theme.surfaceAlt }]} />
+            )}
+            <Text style={[styles.cardName, { color: theme.text, width: tileSize.width }]} numberOfLines={1} ellipsizeMode="tail">{c.name}</Text>
+            <Text style={[styles.cardMana, { color: theme.textSecondary }]} numberOfLines={1}>{c.mana_cost}</Text>
+          </TouchableOpacity>
+        ))}
+      </ScrollView>
+    );
+  }
+
+  return (
+    <View style={[styles.container, { backgroundColor: theme.surface }]}>
+      <Text style={[styles.heading, { color: theme.accent }]}>Similar Cards</Text>
+      {renderBody()}
     </View>
   );
 }

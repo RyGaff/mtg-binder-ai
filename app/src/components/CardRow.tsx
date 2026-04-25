@@ -11,11 +11,8 @@ function CardRowImpl({ card }: Props) {
   const router = useRouter();
   const theme = useTheme();
   const prices = useMemo(() => {
-    try {
-      return JSON.parse(card.prices || '{}') as { usd?: string };
-    } catch {
-      return {};
-    }
+    try { return JSON.parse(card.prices || '{}') as { usd?: string }; }
+    catch { return {}; }
   }, [card.prices]);
 
   const navigate = useCallback(
@@ -23,21 +20,12 @@ function CardRowImpl({ card }: Props) {
     [router, card.scryfall_id],
   );
 
-  const rowStyle = useMemo(
-    () => [styles.row, { backgroundColor: theme.surface }],
-    [theme.surface],
-  );
-  const placeholderStyle = useMemo(
-    () => [styles.image, { backgroundColor: theme.surfaceAlt }],
-    [theme.surfaceAlt],
-  );
-
   return (
-    <TouchableOpacity style={rowStyle} onPress={navigate}>
+    <TouchableOpacity style={[styles.row, { backgroundColor: theme.surface }]} onPress={navigate}>
       {card.image_uri ? (
         <PressableCardImage uri={card.image_uri} style={styles.image} onPress={navigate} />
       ) : (
-        <View style={placeholderStyle} />
+        <View style={[styles.image, { backgroundColor: theme.surfaceAlt }]} />
       )}
       <View style={styles.info}>
         <Text style={[styles.name, { color: theme.text }]}>{card.name}</Text>

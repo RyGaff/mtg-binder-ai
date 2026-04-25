@@ -10,6 +10,8 @@ export type EmbeddingStatus = 'idle' | 'downloading' | 'error';
 export type SearchViewMode = 'list' | 'grid';
 export type SearchGridCols = 1 | 2 | 3 | 4 | 5;
 type ThemeSlots = [CustomTheme | null, CustomTheme | null, CustomTheme | null];
+type NavDir = 'initial' | 'forward' | 'backward';
+type TrailEntry = { id: string; name: string };
 
 type Store = {
   // Binder
@@ -26,7 +28,7 @@ type Store = {
   lastScannedId: string | null;
   setLastScannedId: (id: string | null) => void;
 
-  // Recent scans (in-memory, not persisted)
+  // Recent scans (in-memory)
   recentScans: CachedCard[];
   addRecentScan: (card: CachedCard) => void;
 
@@ -40,9 +42,9 @@ type Store = {
   searchGridCols: SearchGridCols;
   setSearchGridCols: (cols: SearchGridCols) => void;
 
-  // Card detail breadcrumb trail (in-memory, not persisted)
-  cardTrail: { id: string; name: string }[];
-  pushCardTrail: (entry: { id: string; name: string }) => void;
+  // Card detail breadcrumb trail (in-memory)
+  cardTrail: TrailEntry[];
+  pushCardTrail: (entry: TrailEntry) => void;
   clearCardTrail: () => void;
   /** Set by in-modal navigators (synergy, similar, printings) before router.replace
       so the modal's beforeRemove listener doesn't treat the replace as a dismiss. */
@@ -50,8 +52,8 @@ type Store = {
   markInternalTrailNav: () => void;
   /** Direction of the last in-modal navigation, consumed by the card screen on mount
       to animate a horizontal slide. Reset to 'initial' after each animation plays. */
-  lastCardNavDir: 'initial' | 'forward' | 'backward';
-  setLastCardNavDir: (d: 'initial' | 'forward' | 'backward') => void;
+  lastCardNavDir: NavDir;
+  setLastCardNavDir: (d: NavDir) => void;
 
   // Theme
   theme: ThemeName;
@@ -75,7 +77,7 @@ export const useStore = create<Store>()(
       recentScans: [],
       addRecentScan: (card) =>
         set((state) => ({
-          recentScans: [card, ...state.recentScans.filter(c => c.scryfall_id !== card.scryfall_id)].slice(0, 10),
+          recentScans: [card, ...state.recentScans.filter((c) => c.scryfall_id !== card.scryfall_id)].slice(0, 10),
         })),
       embeddingStatus: 'idle',
       setEmbeddingStatus: (embeddingStatus) => set({ embeddingStatus }),
@@ -85,9 +87,7 @@ export const useStore = create<Store>()(
           const last = state.cardTrail[state.cardTrail.length - 1];
           if (last && last.id === entry.id) return state;
           const existing = state.cardTrail.findIndex((t) => t.id === entry.id);
-          if (existing >= 0) {
-            return { cardTrail: state.cardTrail.slice(0, existing + 1) };
-          }
+          if (existing >= 0) return { cardTrail: state.cardTrail.slice(0, existing + 1) };
           return { cardTrail: [...state.cardTrail, entry].slice(-5) };
         }),
       clearCardTrail: () => set({ cardTrail: [], lastCardNavDir: 'initial' }),

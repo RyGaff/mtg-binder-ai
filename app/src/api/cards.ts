@@ -2,25 +2,10 @@ import type { CachedCard } from '../db/cards';
 import * as db from '../db/cards';
 import { fetchCardById } from './scryfall';
 
-/**
- * In-memory cache scoped to the current scan session. Cleared on
- * scan-screen unmount. A successful Scryfall miss hydrates both this
- * cache and the DB, so a subsequent scan of the same card is free.
- */
-const sessionCache: Map<string, CachedCard> = new Map();
+/** In-memory cache scoped to the current scan session. Cleared on unmount. */
+const sessionCache = new Map<string, CachedCard>();
 
-/**
- * Resolve a full card record given a Scryfall id. Tries:
- *   1. Session cache  (~1 ms) — bypasses staleness by design: a card
- *      already returned this session is trusted for the session.
- *   2. Local SQLite   (~5 ms) — only if row is fresh
- *   3. Scryfall API   (~200 ms, requires network)
- * On Scryfall hit, writes through to both the DB and the session cache.
- *
- * @throws propagates network / HTTP errors from fetchCardById when the
- *         session cache misses, the DB row is absent or stale, AND the
- *         Scryfall call fails.
- */
+/** Resolve a card: session cache → fresh SQLite row → Scryfall. Writes through on API hit. */
 export async function resolveCardById(scryfallId: string): Promise<CachedCard> {
   const cached = sessionCache.get(scryfallId);
   if (cached) return cached;
@@ -41,12 +26,10 @@ export async function resolveCardById(scryfallId: string): Promise<CachedCard> {
   return fresh;
 }
 
-/** Clear the scan-session cache. Call from the Scan screen's unmount effect. */
 export function clearSessionCardCache(): void {
   sessionCache.clear();
 }
 
-/** Test/debug hook. */
 export function getSessionCacheSize(): number {
   return sessionCache.size;
 }

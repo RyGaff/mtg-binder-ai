@@ -12,7 +12,7 @@ export function clearSimilarityCache(): void {
 export function similaritySearch(
   scryfallId: string,
   index: EmbeddingIndex,
-  topN = 20
+  topN = 20,
 ): SimilarityResult[] {
   const cacheKey = `${scryfallId}:${topN}`;
   const hit = cache.get(cacheKey);
@@ -27,6 +27,7 @@ export function similaritySearch(
 
   const { ids, vectors, dim, size } = index;
   const targetOffset = targetRow * dim;
+  const limit = dim - (dim % 4);
 
   const rows = new Int32Array(topN);
   const scores = new Float64Array(topN);
@@ -34,10 +35,20 @@ export function similaritySearch(
   let minIdx = 0;
   let minScore = Infinity;
 
+  function recomputeMin() {
+    minIdx = 0;
+    minScore = scores[0];
+    for (let i = 1; i < topN; i++) {
+      if (scores[i] < minScore) {
+        minScore = scores[i];
+        minIdx = i;
+      }
+    }
+  }
+
   for (let r = 0; r < size; r++) {
     if (r === targetRow) continue;
     const offset = r * dim;
-    const limit = dim - (dim % 4);
     let s0 = 0, s1 = 0, s2 = 0, s3 = 0;
     let j = 0;
     for (; j < limit; j += 4) {
@@ -53,32 +64,14 @@ export function similaritySearch(
       rows[filled] = r;
       scores[filled] = score;
       filled++;
-      if (filled === topN) {
-        minIdx = 0;
-        minScore = scores[0];
-        for (let i = 1; i < topN; i++) {
-          if (scores[i] < minScore) {
-            minScore = scores[i];
-            minIdx = i;
-          }
-        }
-      }
+      if (filled === topN) recomputeMin();
       continue;
     }
 
     if (score <= minScore) continue;
-
     rows[minIdx] = r;
     scores[minIdx] = score;
-
-    minIdx = 0;
-    minScore = scores[0];
-    for (let i = 1; i < topN; i++) {
-      if (scores[i] < minScore) {
-        minScore = scores[i];
-        minIdx = i;
-      }
-    }
+    recomputeMin();
   }
 
   const results: SimilarityResult[] = new Array(filled);

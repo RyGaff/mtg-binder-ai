@@ -19,7 +19,7 @@ function CardTileImpl({ card, style }: Props) {
   return (
     <Pressable onPress={navigate} style={[styles.tile, style]}>
       {card.image_uri ? (
-        <PressableCardImage uri={card.image_uri} style={styles.image} onPress={navigate} resizeMode="cover" />
+        <PressableCardImage card={card} style={styles.image} onPress={navigate} resizeMode="cover" />
       ) : (
         <View style={[styles.image, { backgroundColor: theme.surfaceAlt }]} />
       )}

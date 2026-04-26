@@ -15,17 +15,18 @@ export type CachedCard = {
   all_parts: string; // JSON string — meld_part / meld_result entries only
   prices: string; // JSON string
   keywords: string; // JSON string
+  layout: string;
   cached_at: number;
 };
 
 const STALE_MS = 24 * 60 * 60 * 1000;
 
-const SELECT_COLS = 'scryfall_id, name, set_code, collector_number, mana_cost, type_line, oracle_text, color_identity, image_uri, image_uri_back, card_faces, all_parts, prices, keywords, cached_at';
+const SELECT_COLS = 'scryfall_id, name, set_code, collector_number, mana_cost, type_line, oracle_text, color_identity, image_uri, image_uri_back, card_faces, all_parts, prices, keywords, layout, cached_at';
 
 const UPSERT_CARD_SQL = `INSERT INTO cards
      (scryfall_id, name, set_code, collector_number, mana_cost, type_line,
-      oracle_text, color_identity, image_uri, image_uri_back, card_faces, all_parts, prices, keywords, cached_at)
-   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      oracle_text, color_identity, image_uri, image_uri_back, card_faces, all_parts, prices, keywords, layout, cached_at)
+   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
    ON CONFLICT(scryfall_id) DO UPDATE SET
      name=excluded.name, set_code=excluded.set_code,
      collector_number=excluded.collector_number, mana_cost=excluded.mana_cost,
@@ -35,6 +36,7 @@ const UPSERT_CARD_SQL = `INSERT INTO cards
      card_faces=excluded.card_faces,
      all_parts=excluded.all_parts,
      prices=excluded.prices, keywords=excluded.keywords,
+     layout=excluded.layout,
      cached_at=excluded.cached_at`;
 
 function bindUpsert(card: CachedCard): (string | number)[] {
@@ -42,7 +44,7 @@ function bindUpsert(card: CachedCard): (string | number)[] {
     card.scryfall_id, card.name, card.set_code.toLowerCase(), card.collector_number,
     card.mana_cost, card.type_line, card.oracle_text, card.color_identity,
     card.image_uri, card.image_uri_back ?? '', card.card_faces ?? '[]',
-    card.all_parts ?? '[]', card.prices, card.keywords, card.cached_at,
+    card.all_parts ?? '[]', card.prices, card.keywords, card.layout ?? 'normal', card.cached_at,
   ];
 }
 
@@ -107,7 +109,7 @@ export function searchCardsLocal(query: string, limit = 20): CachedCard[] {
   return getDb().getAllSync<CachedCard>(
     `SELECT c.scryfall_id, c.name, c.set_code, c.collector_number, c.mana_cost,
             c.type_line, c.oracle_text, c.color_identity, c.image_uri,
-            c.image_uri_back, c.card_faces, c.all_parts, c.prices, c.keywords, c.cached_at
+            c.image_uri_back, c.card_faces, c.all_parts, c.prices, c.keywords, c.layout, c.cached_at
      FROM cards_fts
      JOIN cards c ON c.rowid = cards_fts.rowid
      WHERE cards_fts MATCH ?

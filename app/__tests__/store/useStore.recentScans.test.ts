@@ -23,6 +23,7 @@ function makeCard(id: string): CachedCard {
     all_parts: '[]',
     prices: JSON.stringify({ usd: '1.00' }),
     keywords: '[]',
+    layout: 'normal',
     cached_at: Date.now(),
   };
 }

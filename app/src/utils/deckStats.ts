@@ -45,6 +45,16 @@ export function avgCmc(cards: DeckCard[]): number {
   return q === 0 ? 0 : n / q;
 }
 
+/** Per-card USD price from Scryfall's `prices.usd`. Returns null if missing/unparseable. */
+export function cardPriceUsd(card: DeckCard): number | null {
+  let p: { usd?: string | null } = {};
+  try { p = JSON.parse(card.prices || '{}'); } catch { return null; }
+  const usd = p.usd;
+  if (usd == null) return null;
+  const v = parseFloat(usd);
+  return Number.isFinite(v) ? v : null;
+}
+
 /** Sum prices.usd weighted by quantity, skipping null/missing. */
 export function boardPrice(cards: DeckCard[]): number {
   let total = 0;

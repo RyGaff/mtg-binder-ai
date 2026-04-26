@@ -171,7 +171,7 @@ export default function DecksScreen() {
               key={f} onPress={() => setFilter(f)}
               style={[s.chip, { backgroundColor: active ? t.accent : t.surfaceAlt }]}
             >
-              <Text style={[s.chipText, { color: active ? t.text : t.textSecondary }, active && s.chipTextActive]}>{f}</Text>
+              <Text style={[s.chipText, { color: active ? t.text : t.textSecondary }]}>{f}</Text>
             </Pressable>
           );
         })}
@@ -229,7 +229,7 @@ export default function DecksScreen() {
                           key={f} onPress={() => setFormat(f)}
                           style={[s.formatChip, { backgroundColor: active ? t.accent : t.surfaceAlt }]}
                         >
-                          <Text style={[s.formatChipText, { color: active ? t.text : t.textSecondary }, active && s.chipTextActive]}>{f}</Text>
+                          <Text style={[s.formatChipText, { color: active ? t.text : t.textSecondary }]}>{f}</Text>
                         </Pressable>
                       );
                     })}

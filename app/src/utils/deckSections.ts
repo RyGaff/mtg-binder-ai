@@ -17,11 +17,13 @@ export type RowSection = {
  *   Commander (board, flat list)
  *   Main (board header) → Creatures / Planeswalkers / ... / Lands (type sub-sections)
  *   Sideboard (board, flat list)
+ *   Considering (board, flat list — "maybeboard" / cards on the bubble)
  */
 export function buildSections(cards: DeckCard[]): RowSection[] {
   const commander = cards.filter((c) => c.board === 'commander');
   const main = cards.filter((c) => c.board === 'main');
   const side = cards.filter((c) => c.board === 'side');
+  const considering = cards.filter((c) => c.board === 'considering');
 
   const sumQty = (xs: DeckCard[]) => xs.reduce((s, c) => s + c.quantity, 0);
   const sortInner = (a: DeckCard, b: DeckCard) =>
@@ -48,6 +50,10 @@ export function buildSections(cards: DeckCard[]): RowSection[] {
 
   if (side.length > 0) {
     out.push({ title: 'Sideboard', kind: 'board', count: sumQty(side), price: boardPrice(side), data: [...side].sort(sortInner) });
+  }
+
+  if (considering.length > 0) {
+    out.push({ title: 'Considering', kind: 'board', count: sumQty(considering), price: boardPrice(considering), data: [...considering].sort(sortInner) });
   }
 
   return out;

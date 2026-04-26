@@ -2,7 +2,7 @@ import { getDb } from './db';
 import type { CachedCard } from './cards';
 import { fetchArtCrop } from '../api/scryfall';
 
-export type Board = 'main' | 'side' | 'commander';
+export type Board = 'main' | 'side' | 'commander' | 'considering';
 
 export type Deck = {
   id: number;
@@ -145,13 +145,28 @@ export function removeCardFromDeck(deckId: number, scryfallId: string, board: Bo
   );
 }
 
+/** Decrement qty by 1; deletes the row if qty drops to 0. */
+export function decrementCardInDeck(deckId: number, scryfallId: string, board: Board): void {
+  const db = getDb();
+  db.runSync(
+    `UPDATE deck_cards SET quantity = quantity - 1
+     WHERE deck_id = ? AND scryfall_id = ? AND board = ?`,
+    [deckId, scryfallId, board]
+  );
+  db.runSync(
+    `DELETE FROM deck_cards
+     WHERE deck_id = ? AND scryfall_id = ? AND board = ? AND quantity <= 0`,
+    [deckId, scryfallId, board]
+  );
+}
+
 export function deleteDeck(deckId: number): void {
   getDb().runSync('DELETE FROM decks WHERE id = ?', [deckId]);
 }
 
 export function exportDeckAsText(deckId: number): string {
   const cards = getDeckCards(deckId);
-  const boards: Record<Board, DeckCard[]> = { main: [], side: [], commander: [] };
+  const boards: Record<Board, DeckCard[]> = { main: [], side: [], commander: [], considering: [] };
   for (const card of cards) boards[card.board]?.push(card);
 
   const lines: string[] = [];
@@ -168,6 +183,12 @@ export function exportDeckAsText(deckId: number): string {
   if (boards.side.length) {
     lines.push('Sideboard');
     boards.side.forEach((c) => lines.push(`${c.quantity} ${c.name}`));
+    lines.push('');
+  }
+  // Considering ("maybeboard") goes last; common convention in MTGO/Arena export formats.
+  if (boards.considering.length) {
+    lines.push('Considering');
+    boards.considering.forEach((c) => lines.push(`${c.quantity} ${c.name}`));
   }
   return lines.join('\n').trim();
 }

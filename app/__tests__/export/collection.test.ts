@@ -22,6 +22,7 @@ const mockEntries: CollectionEntryWithCard[] = [
     all_parts: '[]',
     prices: '{"usd":"1.20"}',
     keywords: '[]',
+    layout: 'normal',
     cached_at: 1000,
   },
 ];

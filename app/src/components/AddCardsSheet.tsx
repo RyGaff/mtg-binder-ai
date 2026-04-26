@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import {
-  ActivityIndicator, FlatList, KeyboardAvoidingView, Modal,
+  ActivityIndicator, FlatList, KeyboardAvoidingView, Modal, Platform,
   Pressable, StyleSheet, Text, TextInput, View,
 } from 'react-native';
 import { useQueryClient } from '@tanstack/react-query';
@@ -14,6 +14,7 @@ const BOARDS: { key: Board; label: string }[] = [
   { key: 'main', label: 'Main' },
   { key: 'side', label: 'Side' },
   { key: 'commander', label: 'Cmdr' },
+  { key: 'considering', label: 'Maybe' },
 ];
 
 type Props = {
@@ -61,9 +62,11 @@ export function AddCardsSheet({ visible, deckId, onClose }: Props) {
   return (
     <Modal visible={visible} transparent animationType="slide" onRequestClose={onClose}>
       <Pressable style={s.backdrop} onPress={onClose}>
-        <KeyboardAvoidingView behavior="padding" style={s.anchor}>
+        <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : undefined} style={s.anchor}>
           <Pressable onPress={(e) => e.stopPropagation()} style={[s.sheet, { backgroundColor: t.surface, borderColor: t.border }]}>
-            <View style={s.handle} />
+            <Pressable onPress={onClose} style={s.handleWrap} accessibilityRole="button" accessibilityLabel="Dismiss sheet">
+              <View style={s.handle} />
+            </Pressable>
 
             <View style={s.titleRow}>
               <Text style={[s.title, { color: t.text }]}>Add to</Text>
@@ -89,7 +92,7 @@ export function AddCardsSheet({ visible, deckId, onClose }: Props) {
 
             {recent.length > 0 ? (
               <Text style={[s.recent, { color: t.textSecondary }]} numberOfLines={1}>
-                Added: {recent.join(' · ')}
+                {'✓ Added: '}{recent.join(' · ')}
               </Text>
             ) : null}
 
@@ -125,7 +128,8 @@ const s = StyleSheet.create({
   backdrop: { flex: 1, backgroundColor: 'rgba(0,0,0,0.55)' },
   anchor: { flex: 1, justifyContent: 'flex-end' },
   sheet: { borderTopLeftRadius: 20, borderTopRightRadius: 20, borderWidth: 1, padding: 16, gap: 10, maxHeight: '85%' },
-  handle: { alignSelf: 'center', width: 40, height: 4, borderRadius: 2, backgroundColor: '#999', marginBottom: 4 },
+  handleWrap: { alignSelf: 'stretch', alignItems: 'center', paddingVertical: 8 },
+  handle: { width: 40, height: 4, borderRadius: 2, backgroundColor: '#999' },
   titleRow: { flexDirection: 'row', alignItems: 'center', gap: 8 },
   title: { fontSize: 14, fontWeight: '700' },
   boardChips: { flex: 1, flexDirection: 'row', gap: 4 },

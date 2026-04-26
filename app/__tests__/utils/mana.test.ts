@@ -5,6 +5,9 @@ test('parseManaCost', () => {
   expect(parseManaCost(null)).toEqual([]);
   expect(parseManaCost('{2}{U}{U}')).toEqual(['2', 'U', 'U']);
   expect(parseManaCost('{G/W}{U/P}')).toEqual(['G/W', 'U/P']);
+  // Multiface castable cost (split / mdfc / adventure) — emit "//" sentinel.
+  expect(parseManaCost('{1}{U} // {3}{R}')).toEqual(['1', 'U', '//', '3', 'R']);
+  expect(parseManaCost('{W} // {2}{U}')).toEqual(['W', '//', '2', 'U']);
 });
 
 test('manaGlyph returns 1-char for known tokens, null for unknown', () => {
@@ -21,8 +24,15 @@ test('manaTint covers single colors + hybrid', () => {
   expect(manaTint('5')).toBe('#a4abbb');
 });
 
-test('hybrid + phyrexian collapse to first-color glyph + tint (intentional)', () => {
+test('hybrid + phyrexian collapse to a colored glyph + tint (intentional)', () => {
   expect(manaGlyph('U/P')).toBe(manaGlyph('U'));
   expect(manaGlyph('G/W')).toBe(manaGlyph('G'));
   expect(manaTint('U/P')).toBe(manaTint('U'));
+  // Monocolored hybrid {2/W}: prefer the colored half for glyph + tint.
+  expect(manaGlyph('2/W')).toBe(manaGlyph('W'));
+  expect(manaTint('2/W')).toBe(manaTint('W'));
+  // Colorless hybrid + phyrexian-hybrid still resolve.
+  expect(manaGlyph('C/W')).toBe(manaGlyph('W'));
+  expect(manaGlyph('W/U/P')).toBe(manaGlyph('W'));
+  expect(manaTint('W/U/P')).toBe(manaTint('W'));
 });

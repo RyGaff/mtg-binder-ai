@@ -23,7 +23,7 @@ function CardRowImpl({ card }: Props) {
   return (
     <TouchableOpacity style={[styles.row, { backgroundColor: theme.surface }]} onPress={navigate}>
       {card.image_uri ? (
-        <PressableCardImage card={card} style={styles.image} onPress={navigate} />
+        <PressableCardImage card={card} style={styles.image} onPress={navigate} thumb />
       ) : (
         <View style={[styles.image, { backgroundColor: theme.surfaceAlt }]} />
       )}

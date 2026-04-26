@@ -21,7 +21,7 @@ function Sheet({ spec, onClose }: { spec: SheetSpec; onClose: () => void }) {
   // non-destructive actions get a neutral surfaceAlt fill so the primary stands out.
   let firstNonDestructiveSeen = false;
   return (
-    <Modal visible transparent animationType="slide" onRequestClose={onClose}>
+    <Modal visible transparent animationType="fade" hardwareAccelerated onRequestClose={onClose}>
       <Pressable style={s.backdrop} onPress={onClose}>
         <Pressable
           onPress={(e) => e.stopPropagation()}

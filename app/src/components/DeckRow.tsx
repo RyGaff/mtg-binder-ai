@@ -1,5 +1,6 @@
 import { memo } from 'react';
-import { Image, Pressable, StyleSheet, Text, View } from 'react-native';
+import { StyleSheet, Text, TouchableOpacity, View } from 'react-native';
+import { Image } from 'expo-image';
 import type { DeckWithMeta } from '../db/decks';
 import { useTheme } from '../theme/useTheme';
 import { MANA_TINT, manaGlyph } from '../utils/mana';
@@ -28,19 +29,18 @@ function DeckRowImpl({ deck, mode, active, onPress, onLongPress, onMore }: Props
   const accent = deck.color_identity[0] ? MANA_TINT[deck.color_identity[0]] : t.accent;
 
   return (
-    <Pressable
+    <TouchableOpacity
       onPress={() => onPress(deck.id)}
       onLongPress={() => onLongPress(deck)}
-      style={({ pressed }) => [
+      style={[
         banner ? s.banner : s.compact,
         banner
           ? { borderColor: active ? t.accent : t.border, borderWidth: active ? 2 : 1 }
           : { borderBottomColor: t.border, backgroundColor: active ? t.surface : 'transparent' },
-        pressed && { opacity: 0.85 },
       ]}
     >
       {banner && (deck.art_crop_uri
-        ? <Image source={{ uri: deck.art_crop_uri }} style={s.fill} resizeMode="cover" />
+        ? <Image source={deck.art_crop_uri} style={s.fill} contentFit="cover" cachePolicy="memory-disk" recyclingKey={deck.art_crop_uri} />
         : <View style={[s.fill, { backgroundColor: accent }]} />)}
       {banner && <View style={[s.fill, { backgroundColor: t.surface, opacity: 0.55 }]} />}
       {!banner && <View style={{ width: 3, height: 32, borderRadius: 2, backgroundColor: accent }} />}
@@ -60,16 +60,27 @@ function DeckRowImpl({ deck, mode, active, onPress, onLongPress, onMore }: Props
               {manaGlyph(c) ?? ''}
             </Text>
           ))}
-          <Text style={{ fontSize: 11, color: t.textSecondary }} numberOfLines={1}>
-            {banner ? `· ${deck.card_count} cards` : `${deck.format} · ${deck.card_count} cards · ${rel(deck.created_at)}`}
-          </Text>
+          {(() => {
+            // Defensive defaults — main_count/side_count were added recently. If a
+            // cached query result from a prior session is hydrated before refetch,
+            // those fields can be undefined; fall back to 0 to avoid "main undefined".
+            const mainN = deck.main_count ?? 0;
+            const sideN = deck.side_count ?? 0;
+            return (
+              <Text style={{ fontSize: 11, color: t.textSecondary }} numberOfLines={1}>
+                {banner
+                  ? `· main ${mainN} · sideboard ${sideN}`
+                  : `${deck.format} · main ${mainN} · sideboard ${sideN} · ${rel(deck.created_at)}`}
+              </Text>
+            );
+          })()}
         </View>
       </View>
 
-      <Pressable onPress={() => onMore(deck)} hitSlop={8} style={s.more}>
+      <TouchableOpacity onPress={() => onMore(deck)} hitSlop={8} style={s.more}>
         <Text style={{ fontSize: 22, fontWeight: '700', color: t.textSecondary }}>⋮</Text>
-      </Pressable>
-    </Pressable>
+      </TouchableOpacity>
+    </TouchableOpacity>
   );
 }
 

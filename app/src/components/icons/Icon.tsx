@@ -3,7 +3,8 @@ import Svg, { Path, Circle, Rect, Line } from 'react-native-svg';
 
 export type IconName =
   | 'binder' | 'search' | 'camera' | 'cards' | 'profile' | 'close' | 'check'
-  | 'plus' | 'sparkle' | 'sparkle-outline' | 'clock' | 'pencil' | 'chevron-right';
+  | 'plus' | 'sparkle' | 'sparkle-outline' | 'clock' | 'pencil' | 'chevron-right'
+  | 'download';
 
 type Props = { name: IconName; size?: number; color?: string; strokeWidth?: number };
 
@@ -90,6 +91,14 @@ function IconImpl({ name, size = 24, color = '#fff', strokeWidth = 2 }: Props) {
       );
     case 'chevron-right':
       return <Svg {...common}><Path d="M9 6l6 6-6 6" /></Svg>;
+    case 'download':
+      return (
+        <Svg {...common}>
+          <Path d="M12 4v12" />
+          <Path d="M7 11l5 5 5-5" />
+          <Line x1={5} y1={20} x2={19} y2={20} />
+        </Svg>
+      );
   }
 }
 

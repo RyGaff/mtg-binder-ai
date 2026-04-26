@@ -13,9 +13,11 @@ const queryClient = new QueryClient({
   defaultOptions: {
     queries: {
       retry: 1,
-      staleTime: 5 * 60 * 1000,
-      // short gcTime trims memory; per-query overrides extend for card/synergy/printings
-      gcTime: 30 * 60 * 1000,
+      // Tight defaults to release image-heavy list queries (Scryfall search,
+      // collection, decks) shortly after unmount. Per-query overrides extend
+      // gcTime for single-card / synergy / printings where refetch is costly.
+      staleTime: 30 * 1000,
+      gcTime: 60 * 1000,
       refetchOnWindowFocus: false,
       refetchOnReconnect: false,
     },

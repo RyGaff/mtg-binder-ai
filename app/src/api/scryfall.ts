@@ -56,7 +56,7 @@ function normalizeFace(f: NonNullable<ScryfallCard['card_faces']>[number]): Card
   };
 }
 
-function normalize(card: ScryfallCard): CachedCard {
+export function normalizeScryfallCard(card: ScryfallCard): CachedCard {
   const imageUri = card.image_uris?.normal ?? card.card_faces?.[0]?.image_uris?.normal ?? '';
   const hasTwoImages = card.layout ? TWO_IMAGE_LAYOUTS.has(card.layout) : false;
   const imageUriBack = hasTwoImages ? (card.card_faces?.[1]?.image_uris?.normal ?? '') : '';
@@ -64,6 +64,14 @@ function normalize(card: ScryfallCard): CachedCard {
   // flip, adventure). Meld and leveler have no card_faces; top-level fields stay populated.
   const faces: CardFace[] = (card.card_faces?.length ?? 0) >= 2 ? card.card_faces!.map(normalizeFace) : [];
   const front = faces[0];
+  const back = faces[1];
+  // Cards with two castable faces (split, adventure, modal_dfc) carry a mana
+  // cost on each face. Join with " // " so renderers can split them. Scryfall
+  // already does this for `split` at the top level; we mirror it for the rest.
+  const combinedCost =
+    front?.mana_cost && back?.mana_cost
+      ? `${front.mana_cost} // ${back.mana_cost}`
+      : (card.mana_cost || front?.mana_cost || '');
   const relatedParts: RelatedPart[] = (card.all_parts ?? [])
     .filter((p): p is RelatedPart => p.component === 'meld_part' || p.component === 'meld_result')
     .map((p) => ({ id: p.id, component: p.component, name: p.name }));
@@ -72,7 +80,7 @@ function normalize(card: ScryfallCard): CachedCard {
     name: card.name,
     set_code: card.set,
     collector_number: card.collector_number,
-    mana_cost: card.mana_cost || front?.mana_cost || '',
+    mana_cost: combinedCost,
     type_line: card.type_line || front?.type_line || '',
     oracle_text: card.oracle_text || front?.oracle_text || '',
     color_identity: JSON.stringify(card.color_identity),
@@ -119,7 +127,7 @@ async function get<T>(url: string, signal?: AbortSignal): Promise<T> {
 }
 
 export async function fetchCardById(id: string, signal?: AbortSignal): Promise<CachedCard> {
-  return normalize(await get<ScryfallCard>(`${BASE}/cards/${id}`, signal));
+  return normalizeScryfallCard(await get<ScryfallCard>(`${BASE}/cards/${id}`, signal));
 }
 
 /** Fetch just the art_crop URI for a card. Falls back to face[0] for split/dfc layouts. */
@@ -136,7 +144,7 @@ export async function fetchCardBySetNumber(setCode: string, collectorNumber: str
   const url = `${BASE}/cards/search?q=set%3A${encodeURIComponent(setCode.toLowerCase())}+cn%3A${encodeURIComponent(collectorNumber)}`;
   const result = await get<{ data: ScryfallCard[] }>(url, signal);
   if (!result.data?.length) throw new Error(`Scryfall: no card for ${setCode}/${collectorNumber}`);
-  return normalize(result.data[0]);
+  return normalizeScryfallCard(result.data[0]);
 }
 
 export async function fetchCardByName(name: string, signal?: AbortSignal): Promise<CachedCard> {
@@ -152,7 +160,7 @@ export async function fetchCardByName(name: string, signal?: AbortSignal): Promi
   let lastErr: unknown;
   for (const run of attempts) {
     try {
-      return normalize(await run());
+      return normalizeScryfallCard(await run());
     } catch (err) {
       lastErr = err;
     }
@@ -179,14 +187,14 @@ export async function searchScryfall(query: string, page = 1, signal?: AbortSign
     `${BASE}/cards/search?q=${encodeURIComponent(query)}&page=${page}&order=name`,
     signal
   );
-  return result.data.map(normalize);
+  return result.data.map(normalizeScryfallCard);
 }
 
 export async function fetchPrintings(name: string, signal?: AbortSignal): Promise<PrintingSummary[]> {
   const url = `${BASE}/cards/search?q=${encodeURIComponent(`!"${name}"`)}&unique=prints&order=released&dir=desc`;
   const result = await get<SearchResult>(url, signal);
   return result.data.map((c) => {
-    const n = normalize(c);
+    const n = normalizeScryfallCard(c);
     return {
       scryfall_id: c.id,
       set_code: c.set,

@@ -67,7 +67,7 @@ export function Synergy({ card }: Props) {
           >
             <View>
               {s.image_uri ? (
-                <PressableCardImage card={s} style={[styles.cardImage, { backgroundColor: theme.surface }]} onPress={() => openEntry(s)} />
+                <PressableCardImage card={s} style={[styles.cardImage, { backgroundColor: theme.surface }]} onPress={() => openEntry(s)} thumb />
               ) : (
                 <View style={[styles.cardImage, { backgroundColor: theme.surfaceAlt }]} />
               )}

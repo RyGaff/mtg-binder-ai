@@ -57,7 +57,7 @@ const CollectionCard = memo(
     return (
       <TouchableOpacity style={[styles.card, { backgroundColor: theme.surface }]} onPress={navigate}>
         {entry.image_uri ? (
-          <PressableCardImage card={entry} style={styles.image} onPress={navigate} />
+          <PressableCardImage card={entry} style={styles.image} onPress={navigate} thumb />
         ) : (
           <View style={[styles.image, styles.placeholder, { backgroundColor: theme.surfaceAlt }]}>
             <Text style={[styles.placeholderText, { color: theme.textSecondary }]}>{entry.name[0]}</Text>

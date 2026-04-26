@@ -8,10 +8,10 @@ import {
   BackHandler,
   Dimensions,
   Easing,
-  Image,
   PanResponder,
   StyleSheet,
 } from 'react-native';
+import { Image } from 'expo-image';
 import { useLocalSearchParams, useRouter, useNavigation } from 'expo-router';
 import { Fragment, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useQueryClient, type QueryClient } from '@tanstack/react-query';
@@ -617,7 +617,7 @@ function CardPeek({ card, theme }: { card: Card; theme: Theme }) {
     <View style={[styles.peek, { backgroundColor: theme.bg }]}>
       <View style={styles.row}>
         {card.image_uri ? (
-          <Image source={{ uri: card.image_uri }} style={[styles.image, imgSize]} resizeMode="contain" />
+          <Image source={card.image_uri} style={[styles.image, imgSize]} contentFit="contain" cachePolicy="memory-disk" recyclingKey={card.scryfall_id} />
         ) : (
           <View style={[styles.image, imgSize, { backgroundColor: theme.surfaceAlt }]} />
         )}

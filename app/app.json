@@ -17,7 +17,8 @@
         }
       ],
       "expo-sharing",
-      "expo-font"
+      "expo-font",
+      "expo-image"
     ],
     "android": {
       "adaptiveIcon": {

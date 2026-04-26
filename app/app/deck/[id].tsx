@@ -1,12 +1,13 @@
-import { ActivityIndicator, FlatList, Image, Pressable, RefreshControl, StyleSheet, Text, View } from 'react-native';
-import { useLocalSearchParams, useRouter } from 'expo-router';
-import { useCallback, useMemo, useState } from 'react';
+import { ActivityIndicator, FlatList, Pressable, RefreshControl, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
+import { Image } from 'expo-image';
+import { useFocusEffect, useLocalSearchParams, useRouter } from 'expo-router';
+import { useCallback, useMemo, useRef, useState } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import * as Sharing from 'expo-sharing';
 import * as FileSystem from 'expo-file-system/legacy';
 import {
-  decrementCardInDeck, deleteDeck, exportDeckAsText, getDeck, getDeckCards,
+  addCardToDeck, decrementCardInDeck, deleteDeck, exportDeckAsText, getDeck, getDeckCards,
   removeCardFromDeck, setDeckArt,
   type DeckCard,
 } from '../../src/db/decks';
@@ -46,6 +47,9 @@ export default function DeckDetailScreen() {
   // Local UI state: stats panel collapse, add-card sheet visibility, generic action sheet hook.
   const [statsOpen, setStatsOpen] = useState(false);
   const [addOpen, setAddOpen] = useState(false);
+  // Set when the user inspects a card from inside AddCardsSheet — read on next focus
+  // to auto-reopen the sheet so its retained search reappears.
+  const resumeAddOnFocus = useRef(false);
   // Considering ("maybeboard") collapses by default — those cards aren't in the deck
   // proper, so they shouldn't crowd the scroll surface unless the user opts in.
   const [consideringOpen, setConsideringOpen] = useState(false);
@@ -173,6 +177,18 @@ export default function DeckDetailScreen() {
     setAddOpen(true);
   }, [deckId, setActiveDeckId]);
 
+  // Re-focus handler — fires whenever this screen regains focus (mount, return from
+  // child route). If the user just left to inspect a card from inside the sheet, the
+  // ref flag is true; reopen the sheet so its retained search snaps back into view.
+  useFocusEffect(
+    useCallback(() => {
+      if (resumeAddOnFocus.current) {
+        resumeAddOnFocus.current = false;
+        setAddOpen(true);
+      }
+    }, [])
+  );
+
   // Section header — bold for boards (Commander/Main/Sideboard), small caps for type sub-sections.
   // Returns plain JSX (not a FlatList row renderer) so we can compose it inside the flattened
   // row dispatcher below without paying SectionList's sticky-header iOS quirk.
@@ -205,39 +221,76 @@ export default function DeckDetailScreen() {
     );
   }, [t, consideringOpen]);
 
-  // Shared text-row builder — qty · mana cost · name · price · ⋮. The trailing ⋮ button
-  // is the tap-discoverable equivalent of the row's long-press menu, so users who don't
-  // know about long-press can still reach Set-as-art / Remove. It's a sibling Pressable
-  // (not nested) so its tap doesn't bubble into the row's onPress card-detail nav.
+  // Shared invalidation for any qty mutation on a row's card.
+  const invalidateAfterRowMutation = useCallback(() => {
+    qc.invalidateQueries({ queryKey: ['deck-cards', deckId] });
+    qc.invalidateQueries({ queryKey: ['deck', deckId] });
+    qc.invalidateQueries({ queryKey: ['decks'] });
+  }, [qc, deckId]);
+
+  // Inline + / − stepper handlers. + adds another copy; − decrements (delete on 0).
+  const incCard = useCallback((item: DeckCard) => {
+    addCardToDeck({ deck_id: deckId, scryfall_id: item.scryfall_id, quantity: 1, board: item.board });
+    invalidateAfterRowMutation();
+  }, [deckId, invalidateAfterRowMutation]);
+  const decCard = useCallback((item: DeckCard) => {
+    decrementCardInDeck(deckId, item.scryfall_id, item.board);
+    invalidateAfterRowMutation();
+  }, [deckId, invalidateAfterRowMutation]);
+
+  // Shared text-row builder — [−][qty][+] · mana · name · price · ⋮. The leftmost
+  // stepper is the primary qty editor; ⋮ remains for "Set as deck art" / "Remove
+  // all". Stepper buttons are siblings of the main pressable so their taps don't
+  // navigate the user to /card/[id].
   const renderTextRow = useCallback((item: DeckCard) => {
     const price = cardPriceUsd(item);
     return (
       <View style={[s.row, { borderBottomColor: t.border }]}>
-        <Pressable
+        <TouchableOpacity
+          onPress={() => cardOptions(item)}
+          hitSlop={8}
+          accessibilityRole="button"
+          accessibilityLabel={`Options for ${item.name}`}
+          style={s.rowMenu}
+        >
+          <Text style={[s.rowMenuIcon, { color: t.textSecondary }]}>⋮</Text>
+        </TouchableOpacity>
+        <TouchableOpacity
           onPress={() => router.push(`/card/${item.scryfall_id}`)}
           onLongPress={() => cardOptions(item)}
           delayLongPress={400}
-          style={({ pressed }) => [s.rowMain, pressed && { opacity: 0.3 }]}
+          style={s.rowMain}
         >
-          <Text style={[s.qty, { color: t.textSecondary }]}>{item.quantity}</Text>
           <ManaCost cost={item.mana_cost} size={12} />
           <Text style={[s.name, { color: t.text }]} numberOfLines={2}>{item.name}</Text>
           <Text style={[s.price, { color: t.textSecondary }]}>
             {price != null ? `$${price.toFixed(2)}` : '—'}
           </Text>
-        </Pressable>
-        <Pressable
-          onPress={() => cardOptions(item)}
-          hitSlop={8}
-          accessibilityRole="button"
-          accessibilityLabel={`Options for ${item.name}`}
-          style={({ pressed }) => [s.rowMenu, pressed && { opacity: 0.5 }]}
-        >
-          <Text style={[s.rowMenuIcon, { color: t.textSecondary }]}>⋮</Text>
-        </Pressable>
+        </TouchableOpacity>
+        <View style={s.stepper}>
+          <TouchableOpacity
+            onPress={() => decCard(item)}
+            hitSlop={6}
+            accessibilityRole="button"
+            accessibilityLabel={`Remove one ${item.name}`}
+            style={[s.stepBtn, { borderColor: t.border }]}
+          >
+            <Text style={[s.stepIcon, { color: t.textSecondary }]}>−</Text>
+          </TouchableOpacity>
+          <Text style={[s.stepCount, { color: t.text }]}>{item.quantity}</Text>
+          <TouchableOpacity
+            onPress={() => incCard(item)}
+            hitSlop={6}
+            accessibilityRole="button"
+            accessibilityLabel={`Add one ${item.name}`}
+            style={[s.stepBtn, { borderColor: t.border }]}
+          >
+            <Text style={[s.stepIcon, { color: t.textSecondary }]}>+</Text>
+          </TouchableOpacity>
+        </View>
       </View>
     );
-  }, [router, cardOptions, t]);
+  }, [router, cardOptions, t, incCard, decCard]);
 
   // Commander section row — stacked image tile (220pt wide, MTG 5:7 aspect) with name +
   // mana cost beneath. Three things keep vertical scroll alive over this row:
@@ -256,7 +309,7 @@ export default function DeckDetailScreen() {
         {/* pointerEvents="none" wrapper keeps the image area as a bare scroll surface
             — vertical pans pass through to the FlatList responder. */}
         <View pointerEvents="none">
-          <Image source={{ uri: thumb }} style={s.commanderThumb} resizeMode="cover" />
+          <Image source={thumb} style={s.commanderThumb} contentFit="cover" cachePolicy="memory-disk" recyclingKey={thumb} />
         </View>
         {/* Label row sits beneath the image: name+mana label Pressable on the left,
             ⋮ menu button inline on the right — same plain-text treatment as the text-row
@@ -428,17 +481,17 @@ export default function DeckDetailScreen() {
         ListFooterComponent={ListFooter}
         contentContainerStyle={s.list}
         style={{ backgroundColor: t.bg }}
-        removeClippedSubviews={false}
-        initialNumToRender={50}
-        maxToRenderPerBatch={20}
-        windowSize={21}
+        removeClippedSubviews={true}
+        initialNumToRender={12}
+        maxToRenderPerBatch={8}
+        windowSize={7}
         refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor={t.textSecondary} />}
       />
 
       {/* Floating Action Button — anchored absolute, opens AddCardsSheet. */}
       <Pressable
         onPress={openAdd}
-        style={({ pressed }) => [s.fab, { backgroundColor: t.accent, bottom: 16 + insets.bottom }, pressed && { opacity: 0.8, transform: [{ scale: 0.96 }] }]}
+        style={[s.fab, { backgroundColor: t.accent, bottom: 16 + insets.bottom }]}
         accessibilityRole="button"
         accessibilityLabel="Add cards"
       >
@@ -446,7 +499,12 @@ export default function DeckDetailScreen() {
       </Pressable>
 
       {/* In-page card search + add (no nav to /search). Sheet stays open across adds. */}
-      <AddCardsSheet visible={addOpen} deckId={deckId} onClose={() => setAddOpen(false)} />
+      <AddCardsSheet
+        visible={addOpen}
+        deckId={deckId}
+        onClose={() => setAddOpen(false)}
+        onInspect={() => { resumeAddOnFocus.current = true; }}
+      />
       {/* Generic action sheet portal — replaces native Alert across the app. */}
       {sheet.node}
     </View>
@@ -474,12 +532,21 @@ const s = StyleSheet.create({
   // Inner main-row Pressable — the qty/mana/name/price content. Sized as flex:1 so the
   // ⋮ button sits flush right.
   rowMain: { flex: 1, flexDirection: 'row', alignItems: 'center', gap: 10, paddingVertical: 12 },
-  // Trailing ⋮ tap target. Padding gives ≥44pt with hitSlop=8. Right padding deliberately
-  // generous (16) so the icon sits clear of the phone's curved bevel — no edge-hugging.
-  rowMenu: { paddingVertical: 12, paddingLeft: 10, paddingRight: 16 },
+  // ⋮ menu tap target — sits at the LEFT of the row now. Generous left padding
+  // keeps the icon clear of the phone's curved bevel; right padding gives breathing
+  // room before the row's main pressable begins.
+  rowMenu: { paddingVertical: 12, paddingLeft: 4, paddingRight: 10 },
   rowMenuIcon: { fontSize: 18, fontWeight: '700' },
-  // Qty number column (right-aligned for numeric scan).
-  qty: { width: 22, textAlign: 'right', fontSize: 11, fontWeight: '700' },
+  // Inline qty stepper — [−][N][+]. Sits at the trailing edge of the row now.
+  // marginLeft pulls it away from the row's price/name content; the row container's
+  // own paddingHorizontal keeps the rightmost button off the bevel.
+  stepper: { flexDirection: 'row', alignItems: 'center', gap: 4, marginLeft: 6 },
+  stepBtn: {
+    width: 24, height: 24, borderRadius: 6, borderWidth: StyleSheet.hairlineWidth,
+    alignItems: 'center', justifyContent: 'center',
+  },
+  stepIcon: { fontSize: 16, fontWeight: '700', lineHeight: 18, includeFontPadding: false } as const,
+  stepCount: { minWidth: 18, textAlign: 'center', fontSize: 13, fontWeight: '700', fontVariant: ['tabular-nums'] },
   // Commander row outer wrap — full width, centers its children. NO touch handlers
   // anywhere on the image so the entire commander tile area is a bare scroll surface.
   commanderWrap: { alignItems: 'center', paddingVertical: 12, paddingHorizontal: 14, gap: 8 },

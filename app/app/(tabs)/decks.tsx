@@ -4,7 +4,7 @@ import {
   type ListRenderItem,
 } from 'react-native';
 import { useCallback, useMemo, useState } from 'react';
-import { useRouter } from 'expo-router';
+import { useFocusEffect, useRouter } from 'expo-router';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import * as Sharing from 'expo-sharing';
 import * as FileSystem from 'expo-file-system/legacy';
@@ -14,8 +14,9 @@ import {
 } from '../../src/db/decks';
 import { useStore } from '../../src/store/useStore';
 import { useKeyboardAppearance, useTheme } from '../../src/theme/useTheme';
-import { Icon } from '../../src/components/icons/Icon';
 import { DeckRow } from '../../src/components/DeckRow';
+import { ImportDeckSheet } from '../../src/components/ImportDeckSheet';
+import { SpeedDialFab, type SpeedDialItem } from '../../src/components/SpeedDialFab';
 
 const FORMATS = ['Commander', 'Standard', 'Modern', 'Legacy', 'Vintage', 'Pioneer', 'Pauper', 'Draft', 'Other'] as const;
 type Format = typeof FORMATS[number];
@@ -40,6 +41,17 @@ export default function DecksScreen() {
   const setMode = useStore((s) => s.setDeckListMode);
 
   const { data: decks = [] } = useQuery({ queryKey: ['decks'], queryFn: getDecksWithMeta });
+
+  // Refetch deck counts whenever the screen regains focus. Mutations from inside
+  // /deck/[id] already invalidate ['decks'], but the user can still see a stale
+  // row briefly while the refetch is in flight; explicitly invalidating on focus
+  // makes the bottom-row counts (main / sideboard) update the moment the user
+  // returns from a deck detail.
+  useFocusEffect(
+    useCallback(() => {
+      qc.invalidateQueries({ queryKey: ['decks'] });
+    }, [qc])
+  );
 
   const [query, setQuery] = useState('');
   const [filter, setFilter] = useState<'All' | Format>('All');
@@ -132,6 +144,7 @@ export default function DecksScreen() {
 
   const openCreate = () => { setEditingId(null); setName(''); setFormat('Commander'); setModalOpen(true); };
   const closeModal = () => { setModalOpen(false); setName(''); };
+  const [importOpen, setImportOpen] = useState(false);
 
   return (
     <View style={[s.screen, { backgroundColor: t.bg }]}>
@@ -195,17 +208,18 @@ export default function DecksScreen() {
         }
       />
 
-      <Pressable
-        onPress={openCreate}
-        accessibilityRole="button"
-        accessibilityLabel="New deck"
-        style={({ pressed }) => [s.fab, { backgroundColor: t.accent },
-          pressed && { opacity: 0.8, transform: [{ scale: 0.96 }] }]}
-      >
-        <Icon name="plus" size={26} color={t.text} strokeWidth={2.5} />
-      </Pressable>
+      <SpeedDialFab items={[
+        { label: 'Import deck', icon: 'download', onPress: () => setImportOpen(true) },
+        { label: 'New deck',    icon: 'plus',     onPress: openCreate },
+      ]} />
 
-      <Modal visible={modalOpen} transparent animationType="slide" onRequestClose={closeModal}>
+      <ImportDeckSheet
+        visible={importOpen}
+        onClose={() => setImportOpen(false)}
+        onImported={(id) => { setActiveDeckId(id); router.push(`/deck/${id}`); }}
+      />
+
+      <Modal visible={modalOpen} transparent animationType="none" hardwareAccelerated onRequestClose={closeModal}>
         <Pressable style={s.backdrop} onPress={closeModal}>
           <KeyboardAvoidingView behavior="padding" style={s.modalAnchor}>
             <Pressable onPress={(e) => e.stopPropagation()} style={[s.modal, { backgroundColor: t.surface }]}>
@@ -300,11 +314,6 @@ const s = StyleSheet.create({
   empty: { alignItems: 'center', gap: 6, paddingHorizontal: 32 },
   emptyTitle: { fontSize: 18, fontWeight: '700' },
   emptyBody: { fontSize: 14, textAlign: 'center' },
-  fab: {
-    position: 'absolute', right: 24, bottom: 32, width: 56, height: 56, borderRadius: 28,
-    alignItems: 'center', justifyContent: 'center', elevation: 6,
-    shadowColor: '#000', shadowOpacity: 0.25, shadowRadius: 6, shadowOffset: { width: 0, height: 3 },
-  },
   backdrop: { flex: 1, backgroundColor: 'rgba(0,0,0,0.55)' },
   modalAnchor: { flex: 1, justifyContent: 'flex-end' },
   modalCenter: { flex: 1, justifyContent: 'center', paddingHorizontal: 24 },

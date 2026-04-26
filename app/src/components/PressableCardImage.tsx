@@ -1,5 +1,6 @@
 import { memo, useCallback, useState } from 'react';
-import { Image, Modal, Pressable, StyleSheet, type StyleProp, type ImageStyle } from 'react-native';
+import { Modal, Pressable, StyleSheet, type StyleProp, type ImageStyle } from 'react-native';
+import { Image } from 'expo-image';
 import { cardImageTransform, type CardLike } from './cardDisplay';
 
 type Props = {
@@ -19,7 +20,10 @@ type Props = {
   card?: CardLike;
 };
 
+const RESIZE_TO_FIT = { cover: 'cover', contain: 'contain', stretch: 'fill', center: 'none' } as const;
+
 function PressableCardImageImpl({ uri, uriBack, style, onPress, resizeMode = 'cover', thumb = false, onReady, flipped: flippedProp, onFlip, rotateDeg, card }: Props) {
+  const contentFit = RESIZE_TO_FIT[resizeMode];
   if (card) {
     const t = cardImageTransform(card);
     uri = uri ?? t.uri;
@@ -57,12 +61,26 @@ function PressableCardImageImpl({ uri, uriBack, style, onPress, resizeMode = 'co
       <Modal visible={zoomed} transparent animationType="fade" onRequestClose={closeZoom}>
         <Pressable style={styles.overlay} onPress={closeZoom}>
           <Pressable onPress={hasBack || canRotate ? () => setZoomFlipped((f) => !f) : closeZoom}>
-            <Image source={{ uri: zoomUri }} style={[styles.zoomImage, zoomRotateStyle]} resizeMode="contain" />
+            <Image
+              source={zoomUri}
+              style={[styles.zoomImage, zoomRotateStyle]}
+              contentFit="contain"
+              cachePolicy="memory-disk"
+              recyclingKey={zoomUri}
+            />
           </Pressable>
         </Pressable>
       </Modal>
       <Pressable onPress={tapHandler} onLongPress={openZoom}>
-        <Image source={{ uri: displayUri }} style={[style, rotateStyle]} resizeMode={resizeMode} onLoadEnd={onReady} />
+        <Image
+          source={displayUri}
+          style={[style, rotateStyle]}
+          contentFit={contentFit}
+          cachePolicy="memory-disk"
+          recyclingKey={displayUri}
+          onLoadEnd={onReady}
+          transition={120}
+        />
       </Pressable>
     </>
   );

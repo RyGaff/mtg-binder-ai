@@ -68,6 +68,11 @@ export async function ensureDeckArt(deckId: number, scryfallId: string): Promise
 
 export type DeckWithMeta = Deck & {
   card_count: number;
+  // Per-board breakdown for the deck-list row chrome. main_count includes the
+  // commander board (it's part of the deck proper for Commander-format play),
+  // side_count is the sideboard only.
+  main_count: number;
+  side_count: number;
   color_identity: string[];
 };
 
@@ -78,6 +83,8 @@ type DeckMetaRow = {
   created_at: number;
   art_crop_uri: string;
   card_count: number | null;
+  main_count: number | null;
+  side_count: number | null;
   color_identity_concat: string | null;
 };
 
@@ -86,6 +93,8 @@ export function getDecksWithMeta(): DeckWithMeta[] {
     SELECT
       d.id, d.name, d.format, d.created_at, d.art_crop_uri,
       COALESCE(SUM(dc.quantity), 0) AS card_count,
+      COALESCE(SUM(CASE WHEN dc.board IN ('main', 'commander') THEN dc.quantity ELSE 0 END), 0) AS main_count,
+      COALESCE(SUM(CASE WHEN dc.board = 'side' THEN dc.quantity ELSE 0 END), 0) AS side_count,
       GROUP_CONCAT(c.color_identity, '|') AS color_identity_concat
     FROM decks d
     LEFT JOIN deck_cards dc ON dc.deck_id = d.id
@@ -110,6 +119,8 @@ export function getDecksWithMeta(): DeckWithMeta[] {
       created_at: r.created_at,
       art_crop_uri: r.art_crop_uri,
       card_count: r.card_count ?? 0,
+      main_count: r.main_count ?? 0,
+      side_count: r.side_count ?? 0,
       color_identity: Array.from(colors),
     };
   });

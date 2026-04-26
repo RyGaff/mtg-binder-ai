@@ -1,5 +1,6 @@
 import { memo } from 'react';
-import { Image, Pressable, StyleSheet, Text, View } from 'react-native';
+import { Pressable, StyleSheet, Text, View } from 'react-native';
+import { Image } from 'expo-image';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useTheme } from '../theme/useTheme';
 
@@ -18,7 +19,7 @@ function DeckHeroImpl({ name, artCropUri, onBack, onMore }: Props) {
   return (
     <View style={[s.wrap, { height: 200 + insets.top }]}>
       {artCropUri
-        ? <Image source={{ uri: artCropUri }} style={s.fill} resizeMode="cover" />
+        ? <Image source={artCropUri} style={s.fill} contentFit="cover" cachePolicy="memory-disk" recyclingKey={artCropUri} />
         : <View style={[s.fill, { backgroundColor: t.surface }]} />}
       <View style={s.scrim} />
       {/* Bottom toolbar: ← · deck name · ⋮ — single row anchored to the hero's bottom.

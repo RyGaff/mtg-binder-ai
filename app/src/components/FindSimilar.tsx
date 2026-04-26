@@ -53,9 +53,10 @@ export function FindSimilar({ card }: Props) {
           >
             {c.image_uri ? (
               <PressableCardImage
-                uri={c.image_uri}
+                card={c}
                 style={[styles.cardImage, imgStyle, { backgroundColor: theme.surface }]}
                 onPress={() => openCard(c.scryfall_id)}
+                thumb
               />
             ) : (
               <View style={[styles.cardImage, imgStyle, { backgroundColor: theme.surfaceAlt }]} />

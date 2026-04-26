@@ -10,11 +10,13 @@ import {
   useWindowDimensions,
 } from 'react-native';
 import { Camera, useCameraDevice, useCameraPermission, useFrameProcessor, runAtTargetFps } from 'react-native-vision-camera';
+import { Image as ExpoImage } from 'expo-image';
 import type { Frame, FrameProcessorPlugin } from 'react-native-vision-camera';
 import { useSharedValue, useRunOnJS } from 'react-native-worklets-core';
 import * as ImagePicker from 'expo-image-picker';
 import { useRef, useState, useCallback, useEffect } from 'react';
 import { useRouter } from 'expo-router';
+import { useIsFocused } from '@react-navigation/native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { scanCard, scanCardByImage, MATCH_ACCEPT, EMBEDDING_SCAN_ENABLED, type ScanProgress } from '../../src/scanner/ocr';
 import { upsertCard } from '../../src/db/cards';
@@ -301,6 +303,7 @@ export default function ScanScreen() {
   const router = useRouter();
   const device = useCameraDevice('back');
   const { hasPermission, requestPermission } = useCameraPermission();
+  const isFocused = useIsFocused();
   const { width: winW, height: winH } = useWindowDimensions();
   const insets = useSafeAreaInsets();
 
@@ -358,6 +361,9 @@ export default function ScanScreen() {
     lastEmittedCentroid.value = null;
     setDetection(null);
   }, [isCapturing, smoothedCornersWv, stableCount, missCount, lastDetectionState, lastEmittedCentroid]);
+
+  // Reset scanner state when tab loses focus so resume starts clean.
+  useEffect(() => { if (!isFocused) stopScanning(); }, [isFocused, stopScanning]);
 
   // Shared progress handler used by both camera capture and library picker.
   const handleProgress = useCallback((p: ScanProgress) => {
@@ -661,7 +667,13 @@ export default function ScanScreen() {
               onPress={() => { closePanel(); stopScanning(); router.push(`/card/${item.scryfall_id}`); }}
               activeOpacity={0.7}
             >
-              <Image source={{ uri: item.image_uri }} style={scanStyles.thumb} resizeMode="cover" />
+              <ExpoImage
+                source={item.image_uri ? item.image_uri.replace('/normal.', '/small.') : ''}
+                style={scanStyles.thumb}
+                contentFit="cover"
+                cachePolicy="memory-disk"
+                recyclingKey={item.scryfall_id}
+              />
               <View style={scanStyles.rowInfo}>
                 <Text style={scanStyles.rowName} numberOfLines={1}>{item.name}</Text>
                 <Text style={scanStyles.rowSet}>
@@ -691,7 +703,7 @@ export default function ScanScreen() {
               ref={cameraRef}
               style={StyleSheet.absoluteFillObject}
               device={device}
-              isActive={!pickedImageUri}
+              isActive={isFocused && !pickedImageUri}
               frameProcessor={frameProcessor}
               photo={true}
               photoQualityBalance="speed"

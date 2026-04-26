@@ -1,4 +1,4 @@
-import { View, Text, ScrollView, TouchableOpacity, ActivityIndicator, Alert, Linking, StyleSheet } from 'react-native';
+import { View, Text, ScrollView, TouchableOpacity, ActivityIndicator, Linking, StyleSheet } from 'react-native';
 import { useRouter } from 'expo-router';
 import { useSynergyFromCard } from '../api/hooks';
 import { useStore } from '../store/useStore';
@@ -35,7 +35,6 @@ export function Synergy({ card }: Props) {
       router.replace(`/card/${resolved.scryfall_id}`);
     } catch (err) {
       console.warn('[synergy] openEntry failed', entry.name, err);
-      Alert.alert('Could not open card', `${entry.name}: ${String(err)}`);
     }
   };
 
@@ -68,7 +67,7 @@ export function Synergy({ card }: Props) {
           >
             <View>
               {s.image_uri ? (
-                <PressableCardImage uri={s.image_uri} style={[styles.cardImage, { backgroundColor: theme.surface }]} onPress={() => openEntry(s)} />
+                <PressableCardImage card={s} style={[styles.cardImage, { backgroundColor: theme.surface }]} onPress={() => openEntry(s)} thumb />
               ) : (
                 <View style={[styles.cardImage, { backgroundColor: theme.surfaceAlt }]} />
               )}
@@ -87,7 +86,7 @@ export function Synergy({ card }: Props) {
     <View style={[styles.container, { backgroundColor: theme.surface }]}>
       <View style={styles.headerRow}>
         <Text style={[styles.heading, { color: theme.accent }]}>{heading}</Text>
-        <TouchableOpacity onPress={() => Linking.openURL(edhrecUrl).catch((e) => Alert.alert('Could not open link', String(e)))} hitSlop={8}>
+        <TouchableOpacity onPress={() => Linking.openURL(edhrecUrl).catch((e) => console.warn('[synergy] openURL failed', e))} hitSlop={8}>
           <Text style={[styles.attribution, { color: theme.textSecondary }]}>
             Data from <Text style={{ color: theme.accent }}>EDHREC</Text>
           </Text>

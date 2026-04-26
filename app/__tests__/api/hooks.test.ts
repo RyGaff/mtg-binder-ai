@@ -34,6 +34,7 @@ function makeCard(overrides: Partial<CachedCard> = {}): CachedCard {
     all_parts: '[]',
     prices: '{}',
     keywords: '[]',
+    layout: 'normal',
     cached_at: Date.now(),
     ...overrides,
   };

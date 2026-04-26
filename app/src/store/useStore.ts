@@ -9,6 +9,7 @@ type SortOption = 'name' | 'value' | 'set' | 'added';
 export type EmbeddingStatus = 'idle' | 'downloading' | 'error';
 export type SearchViewMode = 'list' | 'grid';
 export type SearchGridCols = 1 | 2 | 3 | 4 | 5;
+export type DeckListMode = 'banner' | 'compact';
 type ThemeSlots = [CustomTheme | null, CustomTheme | null, CustomTheme | null];
 type NavDir = 'initial' | 'forward' | 'backward';
 type TrailEntry = { id: string; name: string };
@@ -41,6 +42,10 @@ type Store = {
   setSearchViewMode: (mode: SearchViewMode) => void;
   searchGridCols: SearchGridCols;
   setSearchGridCols: (cols: SearchGridCols) => void;
+
+  // Deck list view preference
+  deckListMode: DeckListMode;
+  setDeckListMode: (mode: DeckListMode) => void;
 
   // Card detail breadcrumb trail (in-memory)
   cardTrail: TrailEntry[];
@@ -99,6 +104,8 @@ export const useStore = create<Store>()(
       setSearchViewMode: (searchViewMode) => set({ searchViewMode }),
       searchGridCols: 3,
       setSearchGridCols: (searchGridCols) => set({ searchGridCols }),
+      deckListMode: 'banner',
+      setDeckListMode: (deckListMode) => set({ deckListMode }),
       theme: 'dark',
       setTheme: (theme) => set({ theme }),
       customThemes: [null, null, null],
@@ -123,6 +130,7 @@ export const useStore = create<Store>()(
         customThemes: state.customThemes,
         searchViewMode: state.searchViewMode,
         searchGridCols: state.searchGridCols,
+        deckListMode: state.deckListMode,
       }),
       merge: (persistedState, currentState) => ({
         ...currentState,

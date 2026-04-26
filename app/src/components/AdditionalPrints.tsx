@@ -44,7 +44,7 @@ function PrintingRow({ printing, onPress }: { printing: PrintingSummary; onPress
   return (
     <Pressable style={[styles.row, { borderBottomColor: theme.border }]} onPress={onPress} accessibilityLabel={`${printing.set_name} #${printing.collector_number}`}>
       {printing.image_uri ? (
-        <PressableCardImage uri={printing.image_uri} style={styles.thumbnail} onPress={onPress} />
+        <PressableCardImage card={printing} style={styles.thumbnail} onPress={onPress} thumb />
       ) : (
         <View style={[styles.thumbnail, { backgroundColor: theme.surfaceAlt }]} />
       )}

@@ -34,7 +34,8 @@ export function useCard(scryfallId: string) {
     },
     enabled: !!scryfallId,
     staleTime: DAY_MS,
-    gcTime: WEEK_MS,
+    // 5 min: user explicitly navigated to this card; one card payload is small.
+    gcTime: 5 * 60 * 1000,
     initialData: freshCached,
     // Critical: mark initial data as freshly-loaded so RQ doesn't refetch on mount.
     initialDataUpdatedAt: () => freshCached()?.cached_at,
@@ -55,8 +56,12 @@ export function useScryfallSearch(query: string) {
       }
     },
     enabled: query.length > 1,
-    staleTime: 5 * 60 * 1000,
-    gcTime: 30 * 60 * 1000,
+    staleTime: 30 * 1000,
+    // Image-heavy and ephemeral — release shortly after the search screen
+    // unmounts so we don't hold hundreds of card image URIs in memory.
+    // `placeholderData: keepPreviousData` only smooths the in-screen
+    // query-string transition; it doesn't depend on long gcTime.
+    gcTime: 30 * 1000,
     placeholderData: keepPreviousData,
   });
 }

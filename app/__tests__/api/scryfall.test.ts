@@ -106,6 +106,9 @@ describe('fetchPrintings', () => {
       set_name: 'Limited Edition Alpha',
       collector_number: '161',
       image_uri: '',
+      image_uri_back: '',
+      layout: 'normal',
+      card_faces: '[]',
       prices: { usd: '1200.00', usd_foil: null },
     });
     expect(results[1].prices.usd_foil).toBe('4.50');

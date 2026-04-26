@@ -1,5 +1,5 @@
 import { memo, useCallback } from 'react';
-import { Pressable, View, StyleSheet, type StyleProp, type ViewStyle } from 'react-native';
+import { TouchableOpacity, View, StyleSheet, type StyleProp, type ViewStyle } from 'react-native';
 import { useRouter } from 'expo-router';
 import { useTheme } from '../theme/useTheme';
 import { PressableCardImage } from './PressableCardImage';
@@ -17,13 +17,13 @@ function CardTileImpl({ card, style }: Props) {
     [router, card.scryfall_id],
   );
   return (
-    <Pressable onPress={navigate} style={[styles.tile, style]}>
+    <TouchableOpacity onPress={navigate} style={[styles.tile, style]}>
       {card.image_uri ? (
-        <PressableCardImage uri={card.image_uri} style={styles.image} onPress={navigate} resizeMode="cover" />
+        <PressableCardImage card={card} style={styles.image} onPress={navigate} resizeMode="cover" thumb />
       ) : (
         <View style={[styles.image, { backgroundColor: theme.surfaceAlt }]} />
       )}
-    </Pressable>
+    </TouchableOpacity>
   );
 }
 

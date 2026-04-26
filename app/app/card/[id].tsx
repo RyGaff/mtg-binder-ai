@@ -3,28 +3,29 @@ import {
   Text,
   ScrollView,
   TouchableOpacity,
-  Alert,
   ActivityIndicator,
   Animated,
   BackHandler,
   Dimensions,
   Easing,
-  Image,
   PanResponder,
   StyleSheet,
 } from 'react-native';
+import { Image } from 'expo-image';
 import { useLocalSearchParams, useRouter, useNavigation } from 'expo-router';
 import { Fragment, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useQueryClient, type QueryClient } from '@tanstack/react-query';
 import { useCard } from '../../src/api/hooks';
+import { useActionSheet } from '../../src/components/ActionSheet';
 import { ConditionPicker, type Condition } from '../../src/components/ConditionPicker';
 import { FindSimilar } from '../../src/components/FindSimilar';
 import { Synergy } from '../../src/components/Synergy';
 import { AdditionalPrints } from '../../src/components/AdditionalPrints';
 import { MeldLinks } from '../../src/components/MeldLinks';
 import { PressableCardImage } from '../../src/components/PressableCardImage';
+import { cardDisplay } from '../../src/components/cardDisplay';
 import { addToCollection } from '../../src/db/collection';
-import { addCardToDeck } from '../../src/db/decks';
+import { addCardToDeck, ensureDeckArt } from '../../src/db/decks';
 import { useStore } from '../../src/store/useStore';
 import { useTheme } from '../../src/theme/useTheme';
 import { spacing, radius, font, MIN_TOUCH, HIT_SLOP_8 } from '../../src/theme/themes';
@@ -68,6 +69,7 @@ export default function CardDetailModal() {
   const router = useRouter();
   const navigation = useNavigation();
   const qc = useQueryClient();
+  const sheet = useActionSheet();
 
   const activeDeckId = useStore((s) => s.activeDeckId);
   const trail = useStore((s) => s.cardTrail);
@@ -314,7 +316,11 @@ export default function CardDetailModal() {
             foil={foil}
             onToggleFoil={() => setFoil((f) => !f)}
             onAddToBinder={() => addBinder(card, foil, condition, qc)}
-            onAddToDeck={() => addDeck(card, activeDeckId)}
+            onAddToDeck={() => addDeck(card, activeDeckId, qc, () => sheet.show({
+              title: 'No deck selected',
+              subtitle: 'Open the Decks tab and tap a deck to set it active.',
+              actions: [{ label: 'Go to Decks', onPress: () => router.push('/decks') }],
+            }))}
           />
           <MeldLinks card={card} />
           {extrasReady && (
@@ -326,6 +332,7 @@ export default function CardDetailModal() {
           )}
         </ScrollView>
       </Animated.View>
+      {sheet.node}
     </View>
   );
 }
@@ -334,16 +341,17 @@ function addBinder(card: Card, foil: boolean, condition: Condition, qc: QueryCli
   addToCollection({ scryfall_id: card.scryfall_id, quantity: 1, foil, condition });
   qc.invalidateQueries({ queryKey: ['collection'] });
   qc.invalidateQueries({ queryKey: ['collection-value'] });
-  Alert.alert('Added', `${card.name} added to your binder.`);
 }
 
-function addDeck(card: Card, activeDeckId: number | null) {
-  if (!activeDeckId) {
-    Alert.alert('No deck selected', 'Open the Decks tab and select a deck first.');
-    return;
-  }
+function addDeck(card: Card, activeDeckId: number | null, qc: QueryClient, notifyNoDeck: () => void) {
+  if (!activeDeckId) { notifyNoDeck(); return; }
   addCardToDeck({ deck_id: activeDeckId, scryfall_id: card.scryfall_id, quantity: 1, board: 'main' });
-  Alert.alert('Added', `${card.name} added to deck.`);
+  qc.invalidateQueries({ queryKey: ['deck-cards', activeDeckId] });
+  qc.invalidateQueries({ queryKey: ['decks'] });
+  void ensureDeckArt(activeDeckId, card.scryfall_id).then(() => {
+    qc.invalidateQueries({ queryKey: ['deck', activeDeckId] });
+    qc.invalidateQueries({ queryKey: ['decks'] });
+  });
 }
 
 function parseJsonSafe<T>(raw: string | null | undefined, fallback: T, label: string): T {
@@ -365,6 +373,7 @@ function parseCardFaces(raw: string | null | undefined): ParsedFace[] {
   const arr = parseJsonSafe<unknown>(raw, [], 'parseCardFaces');
   return Array.isArray(arr) ? (arr as ParsedFace[]) : [];
 }
+
 
 function LoadingOrError({
   theme,
@@ -465,21 +474,36 @@ function TopBar({
   );
 }
 
-function HeroMeta({ theme, compact, name, mana, type, oracle, prices }: {
-  theme: Theme; compact: boolean; name: string; mana: string; type: string; oracle: string;
+type FaceBlock = { name: string; mana: string; type: string; oracle: string };
+
+function FaceTextBlock({ theme, compact, block }: { theme: Theme; compact: boolean; block: FaceBlock }) {
+  return (
+    <>
+      <Text style={[styles.name, { color: theme.text }]} numberOfLines={compact ? 2 : undefined} ellipsizeMode="tail">
+        {block.name}
+      </Text>
+      <Text style={[styles.subtitle, { color: theme.textSecondary }]} numberOfLines={compact ? 1 : undefined} ellipsizeMode="tail">
+        {block.mana}{'  '}{block.type}
+      </Text>
+      <Text style={[styles.oracle, { color: theme.textSecondary }]} numberOfLines={compact ? 5 : undefined} ellipsizeMode="tail">
+        {block.oracle}
+      </Text>
+    </>
+  );
+}
+
+function HeroMeta({ theme, compact, faces, prices }: {
+  theme: Theme; compact: boolean; faces: FaceBlock[];
   prices: { usd?: string; usd_foil?: string };
 }) {
   return (
     <View style={styles.meta}>
-      <Text style={[styles.name, { color: theme.text }]} numberOfLines={compact ? 2 : undefined} ellipsizeMode="tail">
-        {name}
-      </Text>
-      <Text style={[styles.subtitle, { color: theme.textSecondary }]} numberOfLines={compact ? 1 : undefined} ellipsizeMode="tail">
-        {mana}{'  '}{type}
-      </Text>
-      <Text style={[styles.oracle, { color: theme.textSecondary }]} numberOfLines={compact ? 5 : undefined} ellipsizeMode="tail">
-        {oracle}
-      </Text>
+      {faces.map((b, i) => (
+        <Fragment key={i}>
+          {i > 0 ? <View style={[styles.faceDivider, { backgroundColor: theme.surfaceAlt }]} /> : null}
+          <FaceTextBlock theme={theme} compact={compact} block={b} />
+        </Fragment>
+      ))}
       <View style={styles.prices}>
         {prices.usd ? <Text style={[styles.price, { color: theme.accent }]}>${prices.usd}</Text> : null}
         {prices.usd_foil ? (
@@ -493,11 +517,27 @@ function HeroMeta({ theme, compact, name, mana, type, oracle, prices }: {
   );
 }
 
+function faceToBlock(f: ParsedFace): FaceBlock {
+  return { name: f.name, mana: f.mana_cost, type: f.type_line, oracle: f.oracle_text };
+}
+
 function CardHero({ card, theme, compact = false, onImageReady, flipped = false, onFlip }: { card: Card; theme: Theme; compact?: boolean; onImageReady?: () => void; flipped?: boolean; onFlip?: () => void }) {
   const prices = parsePrices(card.prices);
   const faces = parseCardFaces(card.card_faces);
-  const isMultiFace = faces.length >= 2;
-  const activeFace = isMultiFace ? faces[flipped ? 1 : 0] : undefined;
+  const display = cardDisplay(card.layout, faces.length);
+  const canFlip = display.kind === 'two-image';
+  const canRotate = display.kind === 'rotate';
+  const controlsImage = canFlip || canRotate;
+  const rotateStack = canRotate && display.textMode === 'stack';
+  const rotateSwap = canRotate && display.textMode === 'swap';
+  const stackAll = (display.kind === 'split-text' || rotateStack) && faces.length >= 2;
+  const swapIdx = canFlip || rotateSwap ? (flipped ? 1 : 0) : 0;
+  const swapFace = faces[swapIdx];
+  const metaFaces: FaceBlock[] = stackAll
+    ? faces.map(faceToBlock)
+    : swapFace
+      ? [faceToBlock(swapFace)]
+      : [{ name: card.name, mana: card.mana_cost, type: card.type_line, oracle: card.oracle_text }];
   const { width: winW, height: winH } = Dimensions.get('window');
   const imgSize = heroImageSize(winW, winH);
   return (
@@ -505,9 +545,10 @@ function CardHero({ card, theme, compact = false, onImageReady, flipped = false,
       {card.image_uri ? (
         <PressableCardImage
           uri={card.image_uri}
-          uriBack={card.image_uri_back || undefined}
-          flipped={isMultiFace ? flipped : undefined}
-          onFlip={isMultiFace ? onFlip : undefined}
+          uriBack={canFlip ? (card.image_uri_back || undefined) : undefined}
+          flipped={controlsImage ? flipped : undefined}
+          onFlip={controlsImage ? onFlip : undefined}
+          rotateDeg={canRotate ? display.degrees : undefined}
           style={[styles.image, imgSize]}
           resizeMode="contain"
           onReady={onImageReady}
@@ -515,15 +556,7 @@ function CardHero({ card, theme, compact = false, onImageReady, flipped = false,
       ) : (
         <View style={[styles.image, imgSize, { backgroundColor: theme.surfaceAlt }]} onLayout={onImageReady} />
       )}
-      <HeroMeta
-        theme={theme}
-        compact={compact}
-        name={activeFace?.name || card.name}
-        mana={activeFace?.mana_cost ?? card.mana_cost}
-        type={activeFace?.type_line ?? card.type_line}
-        oracle={activeFace?.oracle_text ?? card.oracle_text}
-        prices={prices}
-      />
+      <HeroMeta theme={theme} compact={compact} faces={metaFaces} prices={prices} />
     </View>
   );
 }
@@ -584,17 +617,14 @@ function CardPeek({ card, theme }: { card: Card; theme: Theme }) {
     <View style={[styles.peek, { backgroundColor: theme.bg }]}>
       <View style={styles.row}>
         {card.image_uri ? (
-          <Image source={{ uri: card.image_uri }} style={[styles.image, imgSize]} resizeMode="contain" />
+          <Image source={card.image_uri} style={[styles.image, imgSize]} contentFit="contain" cachePolicy="memory-disk" recyclingKey={card.scryfall_id} />
         ) : (
           <View style={[styles.image, imgSize, { backgroundColor: theme.surfaceAlt }]} />
         )}
         <HeroMeta
           theme={theme}
           compact
-          name={card.name}
-          mana={card.mana_cost}
-          type={card.type_line}
-          oracle={card.oracle_text}
+          faces={[{ name: card.name, mana: card.mana_cost, type: card.type_line, oracle: card.oracle_text }]}
           prices={prices}
         />
       </View>
@@ -616,6 +646,7 @@ const styles = StyleSheet.create({
   name: { fontSize: font.title, fontWeight: '700', marginBottom: spacing.xs },
   subtitle: { fontSize: 13, marginBottom: spacing.sm },
   oracle: { fontSize: font.small, lineHeight: 18 },
+  faceDivider: { height: StyleSheet.hairlineWidth, marginVertical: spacing.sm, opacity: 0.6 },
   prices: { flexDirection: 'row', gap: spacing.sm, marginTop: spacing.sm },
   price: { fontSize: 13, fontWeight: '600' },
   actions: { marginTop: spacing.lg, gap: spacing.sm + 2 },

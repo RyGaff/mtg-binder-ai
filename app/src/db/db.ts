@@ -25,6 +25,7 @@ function initSchema(db: SQLite.SQLiteDatabase): void {
   addColumnIfMissing(db, 'cards', 'image_uri_back', "TEXT DEFAULT ''");
   addColumnIfMissing(db, 'cards', 'card_faces', "TEXT DEFAULT '[]'");
   addColumnIfMissing(db, 'cards', 'all_parts', "TEXT DEFAULT '[]'");
+  addColumnIfMissing(db, 'cards', 'layout', "TEXT DEFAULT 'normal'");
   db.withTransactionSync(() => {
     db.execSync(`
     -- NOTE: do NOT add WITHOUT ROWID — cards_fts joins on cards.rowid
@@ -43,6 +44,7 @@ function initSchema(db: SQLite.SQLiteDatabase): void {
       all_parts       TEXT DEFAULT '[]',
       prices          TEXT DEFAULT '{}',
       keywords        TEXT DEFAULT '[]',
+      layout          TEXT DEFAULT 'normal',
       cached_at       INTEGER NOT NULL
     );
 
@@ -95,10 +97,11 @@ function initSchema(db: SQLite.SQLiteDatabase): void {
       ON collection_entries (scryfall_id, foil, condition);
 
     CREATE TABLE IF NOT EXISTS decks (
-      id          INTEGER PRIMARY KEY AUTOINCREMENT,
-      name        TEXT NOT NULL,
-      format      TEXT NOT NULL DEFAULT '',
-      created_at  INTEGER NOT NULL
+      id            INTEGER PRIMARY KEY AUTOINCREMENT,
+      name          TEXT NOT NULL,
+      format        TEXT NOT NULL DEFAULT '',
+      created_at    INTEGER NOT NULL,
+      art_crop_uri  TEXT NOT NULL DEFAULT ''
     );
 
     CREATE TABLE IF NOT EXISTS deck_cards (
@@ -119,4 +122,6 @@ function initSchema(db: SQLite.SQLiteDatabase): void {
     CREATE INDEX IF NOT EXISTS deck_cards_scryfall_idx ON deck_cards (scryfall_id);
   `);
   });
+  // Migrate existing decks tables (added after initial release).
+  addColumnIfMissing(db, 'decks', 'art_crop_uri', "TEXT NOT NULL DEFAULT ''");
 }

@@ -4,7 +4,6 @@ import {
   TextInput,
   Modal,
   TouchableOpacity,
-  Alert,
   ActivityIndicator,
   Platform,
   StyleSheet,
@@ -33,6 +32,7 @@ import { fetchCardByName, fetchCardBySetNumber } from '../../src/api/scryfall';
 import { useKeyboardAppearance, useTheme } from '../../src/theme/useTheme';
 import { spacing, radius, font, MIN_TOUCH, HIT_SLOP_8 } from '../../src/theme/themes';
 import { Icon } from '../../src/components/icons/Icon';
+import { useActionSheet } from '../../src/components/ActionSheet';
 import { useDebouncedValue } from '../../src/hooks/useDebouncedValue';
 
 type ImportProgress = { current: number; total: number; currentName: string };
@@ -42,6 +42,7 @@ export default function BinderScreen() {
   const keyboardAppearance = useKeyboardAppearance();
   const router = useRouter();
   const qc = useQueryClient();
+  const sheet = useActionSheet();
   const colorFilter = useStore((s) => s.colorFilter);
   const setColorFilter = useStore((s) => s.setColorFilter);
 
@@ -69,17 +70,20 @@ export default function BinderScreen() {
       const path = `${FileSystem.cacheDirectory}collection.${format}`;
       await FileSystem.writeAsStringAsync(path, content, { encoding: FileSystem.EncodingType.UTF8 });
       await Sharing.shareAsync(path);
-    } catch {
-      Alert.alert('Export Failed', 'Could not export collection.');
+    } catch (e) {
+      console.warn('exportCollection failed', e);
     }
   };
 
   const handleExport = () => {
-    Alert.alert('Export Format', 'Choose a format', [
-      { text: 'JSON', onPress: () => exportAs('json') },
-      { text: 'CSV', onPress: () => exportAs('csv') },
-      { text: 'Cancel', style: 'cancel' },
-    ]);
+    sheet.show({
+      title: 'Export Format',
+      subtitle: 'Choose a format',
+      actions: [
+        { label: 'JSON', onPress: () => { void exportAs('json'); } },
+        { label: 'CSV', onPress: () => { void exportAs('csv'); } },
+      ],
+    });
   };
 
   const handleImport = async () => {
@@ -142,28 +146,30 @@ export default function BinderScreen() {
     setImportProgress(null);
     qc.invalidateQueries({ queryKey: ['collection'] });
     qc.invalidateQueries({ queryKey: ['collection-value'] });
-    Alert.alert(
-      'Import Complete',
-      failed > 0 ? `Added ${added} cards. ${failed} could not be found.` : `Added ${added} cards.`,
-    );
+    sheet.show({
+      title: 'Import Complete',
+      subtitle: failed > 0 ? `Added ${added} cards. ${failed} could not be found.` : `Added ${added} cards.`,
+      actions: [],
+    });
   };
 
   const progress = importProgress ? importProgress.current / importProgress.total : 0;
   const handleAddPress = useCallback(() => router.push('/search'), [router]);
 
   const handleClear = () =>
-    Alert.alert('Clear Collection', 'Delete all cards?', [
-      { text: 'Cancel', style: 'cancel' },
-      {
-        text: 'Clear',
-        style: 'destructive',
+    sheet.show({
+      title: 'Clear Collection',
+      subtitle: 'Delete all cards?',
+      actions: [{
+        label: 'Clear',
+        destructive: true,
         onPress: () => {
           clearCollection();
           qc.invalidateQueries({ queryKey: ['collection'] });
           qc.invalidateQueries({ queryKey: ['collection-value'] });
         },
-      },
-    ]);
+      }],
+    });
 
   return (
     <View style={[styles.container, { backgroundColor: theme.bg }]}>
@@ -231,6 +237,7 @@ export default function BinderScreen() {
           </View>
         </View>
       </Modal>
+      {sheet.node}
     </View>
   );
 }

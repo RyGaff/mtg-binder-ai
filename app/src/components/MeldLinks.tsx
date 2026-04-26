@@ -1,5 +1,5 @@
 import { useCallback } from 'react';
-import { View, Text, TouchableOpacity, StyleSheet, Alert } from 'react-native';
+import { View, Text, TouchableOpacity, StyleSheet } from 'react-native';
 import { useRouter } from 'expo-router';
 import { useTheme } from '../theme/useTheme';
 import { useStore } from '../store/useStore';
@@ -30,7 +30,7 @@ export function MeldLinks({ card }: Props) {
       useStore.getState().markInternalTrailNav();
       router.replace(`/card/${id}`);
     } catch (err) {
-      Alert.alert('Could not open card', `${name}: ${String(err)}`);
+      console.warn('[meld] openCard failed', name, err);
     }
   }, [router]);
 

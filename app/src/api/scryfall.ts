@@ -21,7 +21,7 @@ type ScryfallCard = {
     oracle_text?: string;
     image_uris?: { normal?: string };
   }[];
-  layout?: string;
+  layout?: string; // Meld, flip, split, normal, transform
   all_parts?: { id: string; component: string; name: string; type_line?: string }[];
   prices?: { usd?: string; usd_foil?: string };
   keywords?: string[];
@@ -29,7 +29,7 @@ type ScryfallCard = {
 
 // Layouts where each face has its own image URI. Split/flip/adventure share one image.
 const TWO_IMAGE_LAYOUTS = new Set([
-  'transform', 'modal_dfc', 'double_faced_token', 'art_series', 'reversible_card',
+  'transform', 'modal_dfc', 'double_faced_token', 'art_series', 'reversible_card', 'meld',
 ]);
 
 export type RelatedPart = {
@@ -82,6 +82,7 @@ function normalize(card: ScryfallCard): CachedCard {
     all_parts: JSON.stringify(relatedParts),
     prices: JSON.stringify(card.prices ?? {}),
     keywords: JSON.stringify(card.keywords ?? []),
+    layout: card.layout ?? 'normal',
     cached_at: Date.now(),
   };
 }
@@ -121,6 +122,15 @@ export async function fetchCardById(id: string, signal?: AbortSignal): Promise<C
   return normalize(await get<ScryfallCard>(`${BASE}/cards/${id}`, signal));
 }
 
+/** Fetch just the art_crop URI for a card. Falls back to face[0] for split/dfc layouts. */
+export async function fetchArtCrop(id: string, signal?: AbortSignal): Promise<string | null> {
+  const card = await get<{
+    image_uris?: { art_crop?: string };
+    card_faces?: Array<{ image_uris?: { art_crop?: string } }>;
+  }>(`${BASE}/cards/${id}`, signal);
+  return card.image_uris?.art_crop ?? card.card_faces?.[0]?.image_uris?.art_crop ?? null;
+}
+
 export async function fetchCardBySetNumber(setCode: string, collectorNumber: string, signal?: AbortSignal): Promise<CachedCard> {
   // Use search endpoint (more robust than /cards/:set/:number — handles leading zeros, case).
   const url = `${BASE}/cards/search?q=set%3A${encodeURIComponent(setCode.toLowerCase())}+cn%3A${encodeURIComponent(collectorNumber)}`;
@@ -158,6 +168,9 @@ export type PrintingSummary = {
   set_name: string;
   collector_number: string;
   image_uri: string;
+  image_uri_back: string;
+  layout: string;
+  card_faces: string; // JSON string, matches CachedCard.card_faces
   prices: { usd: string | null; usd_foil: string | null };
 };
 
@@ -172,15 +185,21 @@ export async function searchScryfall(query: string, page = 1, signal?: AbortSign
 export async function fetchPrintings(name: string, signal?: AbortSignal): Promise<PrintingSummary[]> {
   const url = `${BASE}/cards/search?q=${encodeURIComponent(`!"${name}"`)}&unique=prints&order=released&dir=desc`;
   const result = await get<SearchResult>(url, signal);
-  return result.data.map((c) => ({
-    scryfall_id: c.id,
-    set_code: c.set,
-    set_name: c.set_name ?? '',
-    collector_number: c.collector_number,
-    image_uri: c.image_uris?.normal ?? c.card_faces?.[0]?.image_uris?.normal ?? '',
-    prices: {
-      usd: c.prices?.usd ?? null,
-      usd_foil: c.prices?.usd_foil ?? null,
-    },
-  }));
+  return result.data.map((c) => {
+    const n = normalize(c);
+    return {
+      scryfall_id: c.id,
+      set_code: c.set,
+      set_name: c.set_name ?? '',
+      collector_number: c.collector_number,
+      image_uri: n.image_uri,
+      image_uri_back: n.image_uri_back,
+      layout: n.layout,
+      card_faces: n.card_faces,
+      prices: {
+        usd: c.prices?.usd ?? null,
+        usd_foil: c.prices?.usd_foil ?? null,
+      },
+    };
+  });
 }

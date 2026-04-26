@@ -1,13 +1,15 @@
 import { getDb } from './db';
 import type { CachedCard } from './cards';
+import { fetchArtCrop } from '../api/scryfall';
 
-type Board = 'main' | 'side' | 'commander';
+export type Board = 'main' | 'side' | 'commander';
 
 export type Deck = {
   id: number;
   name: string;
   format: string;
   created_at: number;
+  art_crop_uri: string;
 };
 
 export type DeckCard = {
@@ -33,7 +35,84 @@ export function createDeck(args: { name: string; format: string }): number {
 }
 
 export function getDecks(): Deck[] {
-  return getDb().getAllSync<Deck>('SELECT id, name, format, created_at FROM decks ORDER BY created_at DESC');
+  return getDb().getAllSync<Deck>('SELECT id, name, format, created_at, art_crop_uri FROM decks ORDER BY created_at DESC');
+}
+
+export function getDeck(deckId: number): Deck | null {
+  return getDb().getFirstSync<Deck>(
+    'SELECT id, name, format, created_at, art_crop_uri FROM decks WHERE id = ?',
+    [deckId],
+  );
+}
+
+export function renameDeck(deckId: number, name: string): void {
+  getDb().runSync('UPDATE decks SET name = ? WHERE id = ?', [name, deckId]);
+}
+
+export function setDeckArt(deckId: number, artCropUri: string): void {
+  getDb().runSync('UPDATE decks SET art_crop_uri = ? WHERE id = ?', [artCropUri, deckId]);
+}
+
+/**
+ * Set the deck's art_crop_uri from a card if not already set.
+ * Async — fetches art_crop from Scryfall (we don't store it on every cached card).
+ */
+export async function ensureDeckArt(deckId: number, scryfallId: string): Promise<void> {
+  const deck = getDeck(deckId);
+  if (!deck || deck.art_crop_uri) return;
+  try {
+    const uri = await fetchArtCrop(scryfallId);
+    if (uri) setDeckArt(deckId, uri);
+  } catch { /* network errors / aborts: silently skip */ }
+}
+
+export type DeckWithMeta = Deck & {
+  card_count: number;
+  color_identity: string[];
+};
+
+type DeckMetaRow = {
+  id: number;
+  name: string;
+  format: string;
+  created_at: number;
+  art_crop_uri: string;
+  card_count: number | null;
+  color_identity_concat: string | null;
+};
+
+export function getDecksWithMeta(): DeckWithMeta[] {
+  const rows = getDb().getAllSync<DeckMetaRow>(`
+    SELECT
+      d.id, d.name, d.format, d.created_at, d.art_crop_uri,
+      COALESCE(SUM(dc.quantity), 0) AS card_count,
+      GROUP_CONCAT(c.color_identity, '|') AS color_identity_concat
+    FROM decks d
+    LEFT JOIN deck_cards dc ON dc.deck_id = d.id
+    LEFT JOIN cards c ON c.scryfall_id = dc.scryfall_id
+    GROUP BY d.id
+    ORDER BY d.created_at DESC
+  `);
+  return rows.map((r) => {
+    const colors = new Set<string>();
+    if (r.color_identity_concat) {
+      for (const chunk of r.color_identity_concat.split('|')) {
+        try {
+          const arr = JSON.parse(chunk) as string[];
+          for (const c of arr) if ('WUBRG'.includes(c)) colors.add(c);
+        } catch { /* skip */ }
+      }
+    }
+    return {
+      id: r.id,
+      name: r.name,
+      format: r.format,
+      created_at: r.created_at,
+      art_crop_uri: r.art_crop_uri,
+      card_count: r.card_count ?? 0,
+      color_identity: Array.from(colors),
+    };
+  });
 }
 
 export function getDeckCards(deckId: number): DeckCard[] {

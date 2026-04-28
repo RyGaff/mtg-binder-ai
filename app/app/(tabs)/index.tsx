@@ -34,12 +34,10 @@ import { spacing, radius, font, MIN_TOUCH, HIT_SLOP_8 } from '../../src/theme/th
 import { Icon } from '../../src/components/icons/Icon';
 import { useActionSheet } from '../../src/components/ActionSheet';
 import { useDebouncedValue } from '../../src/hooks/useDebouncedValue';
-import { useImageMemoryCleanupOnBlur } from '../../src/utils/imageMemory';
 
 type ImportProgress = { current: number; total: number; currentName: string };
 
 export default function BinderScreen() {
-  useImageMemoryCleanupOnBlur();
   const theme = useTheme();
   const keyboardAppearance = useKeyboardAppearance();
   const router = useRouter();

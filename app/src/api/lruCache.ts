@@ -1,52 +1,30 @@
-/** Bounded LRU map with optional time-to-idle eviction. Insertion-order Map:
- *  re-inserts on hit move keys to the most-recently-used end; oldest key
- *  evicts when size exceeds capacity. When `ttlMs` is set, entries also
- *  evict lazily on read if `ttlMs` has elapsed since last access — bounds
- *  memory by both count and age without needing a periodic sweep. */
-type Entry<V> = { value: V; lastAccess: number };
-
+/** Bounded LRU map. Insertion-order Map: re-inserts on hit move keys to the
+ *  most-recently-used end; oldest key evicts when size exceeds capacity. */
 export class LruCache<K, V> {
-  private readonly map = new Map<K, Entry<V>>();
-  private readonly ttlMs: number;
+  private readonly map = new Map<K, V>();
 
-  constructor(private readonly capacity: number, ttlMs: number = Number.POSITIVE_INFINITY) {
+  constructor(private readonly capacity: number) {
     if (capacity <= 0) throw new Error('LruCache capacity must be > 0');
-    if (ttlMs <= 0) throw new Error('LruCache ttlMs must be > 0');
-    this.ttlMs = ttlMs;
   }
 
-  private isExpired(entry: Entry<V>): boolean {
-    return Date.now() - entry.lastAccess > this.ttlMs;
-  }
-
-  /** Read + promote to MRU. Lazily evicts and returns undefined if expired. */
+  /** Read + promote to MRU. */
   get(key: K): V | undefined {
-    const entry = this.map.get(key);
-    if (!entry) return undefined;
-    if (this.isExpired(entry)) {
-      this.map.delete(key);
-      return undefined;
-    }
-    entry.lastAccess = Date.now();
+    if (!this.map.has(key)) return undefined;
+    const value = this.map.get(key) as V;
     this.map.delete(key);
-    this.map.set(key, entry);
-    return entry.value;
+    this.map.set(key, value);
+    return value;
   }
 
-  /** Read without promoting. Still evicts expired entries lazily. */
+  /** Read without touching LRU order. Use when the caller may discard the
+   *  entry (e.g. stale-check followed by delete) — avoids a wasted promote. */
   peek(key: K): V | undefined {
-    const entry = this.map.get(key);
-    if (!entry) return undefined;
-    if (this.isExpired(entry)) {
-      this.map.delete(key);
-      return undefined;
-    }
-    return entry.value;
+    return this.map.get(key);
   }
 
   set(key: K, value: V): void {
     if (this.map.has(key)) this.map.delete(key);
-    this.map.set(key, { value, lastAccess: Date.now() });
+    this.map.set(key, value);
     if (this.map.size > this.capacity) {
       const oldest = this.map.keys().next().value as K | undefined;
       if (oldest !== undefined) this.map.delete(oldest);

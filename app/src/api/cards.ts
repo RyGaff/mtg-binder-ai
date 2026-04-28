@@ -3,13 +3,11 @@ import * as db from '../db/cards';
 import { fetchCardById } from './scryfall';
 import { LruCache } from './lruCache';
 
-/** Bounded in-memory cache. 256 entries ≈ a typical browse session
- *  (deck of ~100 + a few searches). 15-min idle TTL means entries the user
- *  hasn't touched recently fall out before they pile up against the cap.
- *  Both bounds matter: capacity for active churn, TTL for idle accumulation. */
+/** Bounded in-memory cache for card JSON (~2 KB per entry). Capacity-only —
+ *  capping at 256 puts the whole cache at ~500 KB max. This is a latency
+ *  optimization (skip SQLite reads on repeat lookups), not a memory bound. */
 const SESSION_CAPACITY = 256;
-const SESSION_TTL_MS = 15 * 60 * 1000;
-const sessionCache = new LruCache<string, CachedCard>(SESSION_CAPACITY, SESSION_TTL_MS);
+const sessionCache = new LruCache<string, CachedCard>(SESSION_CAPACITY);
 
 /** Write-through helper. Use after a Scryfall fetch to populate both layers
  *  in one place — replaces the old "fetch, then resolveCardById to warm the cache"
@@ -43,6 +41,12 @@ export function peekSessionCard(scryfallId: string): CachedCard | undefined {
 /** Promote an existing entry to MRU. Use when a peek hit is being returned. */
 export function touchSessionCard(scryfallId: string): void {
   sessionCache.get(scryfallId);
+}
+
+/** Session-only setter. Use when the row already lives on disk (e.g. a fresh
+ *  SQLite read) — avoids a wasted upsert that `cacheCard` would do. */
+export function setSessionCard(card: CachedCard): void {
+  sessionCache.set(card.scryfall_id, card);
 }
 
 /** Resolve a card: session cache → fresh SQLite row → Scryfall. Writes through on API hit. */

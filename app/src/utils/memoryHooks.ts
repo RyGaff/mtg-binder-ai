@@ -11,7 +11,10 @@ import { clearEmbeddingCache } from '../embeddings/parser';
 export function useBackgroundMemoryReset(): void {
   useEffect(() => {
     const onChange = (state: AppStateStatus) => {
-      if (state === 'background' || state === 'inactive') {
+      // 'inactive' fires on Control Center swipe, incoming call, etc. — too
+      // transient to justify dropping the embedding map (~26 MB re-parse on
+      // resume). Only 'background' = user actually left the app.
+      if (state === 'background') {
         Image.clearMemoryCache().catch(() => {});
         clearSessionCardCache();
         clearEmbeddingCache();

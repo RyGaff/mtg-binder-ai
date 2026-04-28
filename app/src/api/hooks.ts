@@ -10,7 +10,7 @@ import {
   STALE_MS,
 } from '../db/cards';
 import type { CachedCard } from '../db/cards';
-import { cacheCard, cacheCards, peekSessionCard, touchSessionCard } from './cards';
+import { cacheCard, cacheCards, peekSessionCard, setSessionCard, touchSessionCard } from './cards';
 import { getPrintingsByName, isPrintingsStale, upsertPrintings } from '../db/printings';
 import { getEmbeddingMap } from '../embeddings/parser';
 import { similaritySearch } from '../embeddings/similarity';
@@ -33,7 +33,7 @@ export function useCard(scryfallId: string) {
     }
     const c = getCardById(scryfallId);
     if (c && !isCardStale(c)) {
-      cacheCard(c); // warm LRU for repeat reads (idempotent on DB row)
+      setSessionCard(c); // warm LRU only — row already lives on disk
       return c;
     }
     return undefined;

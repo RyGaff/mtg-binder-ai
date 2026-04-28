@@ -16,7 +16,6 @@ import { useScryfallSearch } from '../../src/api/hooks';
 import { useKeyboardAppearance, useTheme } from '../../src/theme/useTheme';
 import { useStore } from '../../src/store/useStore';
 import { useDebouncedValue } from '../../src/hooks/useDebouncedValue';
-import { useImageMemoryCleanupOnBlur } from '../../src/utils/imageMemory';
 import type { CachedCard } from '../../src/db/cards';
 
 // row 64 minHeight + 10*2 padding + 8 marginBottom — keep in sync with CardRow.
@@ -29,7 +28,6 @@ const getListItemLayout = (_: ArrayLike<CachedCard> | null | undefined, index: n
 const renderListItem: ListRenderItem<CachedCard> = ({ item }) => <CardRow card={item} />;
 
 export default function SearchScreen() {
-  useImageMemoryCleanupOnBlur();
   const theme = useTheme();
   const keyboardAppearance = useKeyboardAppearance();
   const viewMode = useStore((s) => s.searchViewMode);

@@ -19,7 +19,7 @@ export type CachedCard = {
   cached_at: number;
 };
 
-const STALE_MS = 24 * 60 * 60 * 1000;
+export const STALE_MS = 24 * 60 * 60 * 1000;
 
 const SELECT_COLS = 'scryfall_id, name, set_code, collector_number, mana_cost, type_line, oracle_text, color_identity, image_uri, image_uri_back, card_faces, all_parts, prices, keywords, layout, cached_at';
 
@@ -66,6 +66,26 @@ export function upsertCards(cards: CachedCard[]): void {
   }
 }
 
+const INSERT_OR_IGNORE_CARD_SQL = `INSERT OR IGNORE INTO cards
+     (scryfall_id, name, set_code, collector_number, mana_cost, type_line,
+      oracle_text, color_identity, image_uri, image_uri_back, card_faces, all_parts, prices, keywords, layout, cached_at)
+   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`;
+
+/** Seed-only bulk upsert. Skips rows that already exist so search-payload writes
+ *  don't clobber detail-payload rows (search omits all_parts, etc.). */
+export function upsertCardsIfNewer(cards: CachedCard[]): void {
+  if (cards.length === 0) return;
+  const db = getDb();
+  const stmt = db.prepareSync(INSERT_OR_IGNORE_CARD_SQL);
+  try {
+    db.withTransactionSync(() => {
+      for (const card of cards) stmt.executeSync(bindUpsert(card));
+    });
+  } finally {
+    stmt.finalizeSync();
+  }
+}
+
 export function getCardById(scryfallId: string): CachedCard | null {
   return getDb().getFirstSync<CachedCard>(
     `SELECT ${SELECT_COLS} FROM cards WHERE scryfall_id = ?`,
@@ -73,12 +93,15 @@ export function getCardById(scryfallId: string): CachedCard | null {
   ) ?? null;
 }
 
-/** Bulk fetch by scryfall_id. Returns a Map keyed by scryfall_id. */
-export function getCardsByIds(scryfallIds: readonly string[]): Map<string, CachedCard> {
+/** Bulk fetch by scryfall_id. Returns a Map keyed by scryfall_id.
+ *  When `freshOnly`, rows past STALE_MS are dropped so callers refresh them. */
+export function getCardsByIds(
+  scryfallIds: readonly string[],
+  options: { freshOnly?: boolean } = {},
+): Map<string, CachedCard> {
   const out = new Map<string, CachedCard>();
   if (scryfallIds.length === 0) return out;
   const db = getDb();
-  // De-dupe and chunk to stay well under SQLITE_MAX_VARIABLE_NUMBER (999).
   const unique = Array.from(new Set(scryfallIds));
   const CHUNK = 500;
   for (let i = 0; i < unique.length; i += CHUNK) {
@@ -88,7 +111,10 @@ export function getCardsByIds(scryfallIds: readonly string[]): Map<string, Cache
       `SELECT ${SELECT_COLS} FROM cards WHERE scryfall_id IN (${placeholders})`,
       slice
     );
-    for (const row of rows) out.set(row.scryfall_id, row);
+    for (const row of rows) {
+      if (options.freshOnly && isCardStale(row)) continue;
+      out.set(row.scryfall_id, row);
+    }
   }
   return out;
 }

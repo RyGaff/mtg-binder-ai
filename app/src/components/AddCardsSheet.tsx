@@ -218,7 +218,7 @@ export function AddCardsSheet({ visible, deckId, onClose, onInspect }: Props) {
                           accessibilityLabel={`Inspect ${item.name}`}
                         >
                           {thumb ? (
-                            <Image source={thumb} style={s.resultThumb} contentFit="cover" cachePolicy="memory-disk" recyclingKey={thumb} />
+                            <Image source={thumb} style={s.resultThumb} contentFit="cover" priority="low" decodeFormat="rgb" recyclingKey={thumb} />
                           ) : (
                             <View style={[s.resultThumb, { backgroundColor: t.surfaceAlt }]} />
                           )}

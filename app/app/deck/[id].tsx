@@ -22,8 +22,10 @@ import { DeckStatsPanel } from '../../src/components/DeckStatsPanel';
 import { ManaCost } from '../../src/components/ManaCost';
 import { boardPrice, cardPriceUsd } from '../../src/utils/deckStats';
 import { buildSections, type RowSection } from '../../src/utils/deckSections';
+import { useImageMemoryCleanupOnBlur } from '../../src/utils/imageMemory';
 
 export default function DeckDetailScreen() {
+  useImageMemoryCleanupOnBlur();
   const t = useTheme();
   const router = useRouter();
   const qc = useQueryClient();

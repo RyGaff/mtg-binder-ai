@@ -34,10 +34,12 @@ import { spacing, radius, font, MIN_TOUCH, HIT_SLOP_8 } from '../../src/theme/th
 import { Icon } from '../../src/components/icons/Icon';
 import { useActionSheet } from '../../src/components/ActionSheet';
 import { useDebouncedValue } from '../../src/hooks/useDebouncedValue';
+import { useImageMemoryCleanupOnBlur } from '../../src/utils/imageMemory';
 
 type ImportProgress = { current: number; total: number; currentName: string };
 
 export default function BinderScreen() {
+  useImageMemoryCleanupOnBlur();
   const theme = useTheme();
   const keyboardAppearance = useKeyboardAppearance();
   const router = useRouter();
@@ -146,6 +148,8 @@ export default function BinderScreen() {
     setImportProgress(null);
     qc.invalidateQueries({ queryKey: ['collection'] });
     qc.invalidateQueries({ queryKey: ['collection-value'] });
+    // Bulk-imported cards may be open in detail screens — drop their RQ entries.
+    if (toUpsert.length) qc.invalidateQueries({ queryKey: ['card'] });
     sheet.show({
       title: 'Import Complete',
       subtitle: failed > 0 ? `Added ${added} cards. ${failed} could not be found.` : `Added ${added} cards.`,

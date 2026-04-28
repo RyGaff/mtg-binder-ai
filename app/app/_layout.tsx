@@ -1,11 +1,24 @@
 import { Stack } from 'expo-router';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { useEffect } from 'react';
+import { Platform } from 'react-native';
 import { useFonts } from 'expo-font';
 import * as SplashScreen from 'expo-splash-screen';
+import { Image } from 'expo-image';
 import { getDb } from '../src/db/db';
 import { checkAndDownload } from '../src/embeddings/downloader';
 import { useStore } from '../src/store/useStore';
+import { useBackgroundMemoryReset } from '../src/utils/memoryHooks';
+
+// SDWebImage's NSCache defaults to unlimited cost. Cap it so a long browse
+// session can't accumulate bitmaps past these limits. iOS-only API.
+if (Platform.OS === 'ios') {
+  Image.configureCache({
+    maxMemoryCost: 100 * 1024 * 1024, // 100 MB decoded bitmaps
+    maxMemoryCount: 200,              // ≈200 cached images
+    maxDiskSize: 250 * 1024 * 1024,   // 250 MB on-disk JPEGs
+  });
+}
 
 SplashScreen.preventAutoHideAsync().catch(() => {});
 
@@ -27,6 +40,7 @@ const queryClient = new QueryClient({
 
 function AppInit() {
   const setEmbeddingStatus = useStore((s) => s.setEmbeddingStatus);
+  useBackgroundMemoryReset();
   useEffect(() => {
     getDb();
     checkAndDownload(setEmbeddingStatus);

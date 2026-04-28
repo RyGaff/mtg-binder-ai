@@ -17,6 +17,7 @@ import { useKeyboardAppearance, useTheme } from '../../src/theme/useTheme';
 import { DeckRow } from '../../src/components/DeckRow';
 import { ImportDeckSheet } from '../../src/components/ImportDeckSheet';
 import { SpeedDialFab, type SpeedDialItem } from '../../src/components/SpeedDialFab';
+import { useImageMemoryCleanupOnBlur } from '../../src/utils/imageMemory';
 
 const FORMATS = ['Commander', 'Standard', 'Modern', 'Legacy', 'Vintage', 'Pioneer', 'Pauper', 'Draft', 'Other'] as const;
 type Format = typeof FORMATS[number];
@@ -30,6 +31,7 @@ const press = (extra: any) => ({ pressed }: { pressed: boolean }) =>
   [extra, pressed && { opacity: 0.7 }];
 
 export default function DecksScreen() {
+  useImageMemoryCleanupOnBlur();
   const t = useTheme();
   const keyboardAppearance = useKeyboardAppearance();
   const router = useRouter();

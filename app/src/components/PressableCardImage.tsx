@@ -66,6 +66,8 @@ function PressableCardImageImpl({ uri, uriBack, style, onPress, resizeMode = 'co
               style={[styles.zoomImage, zoomRotateStyle]}
               contentFit="contain"
               cachePolicy="memory-disk"
+              priority="high"
+              decodeFormat="rgb"
               recyclingKey={zoomUri}
             />
           </Pressable>
@@ -76,7 +78,16 @@ function PressableCardImageImpl({ uri, uriBack, style, onPress, resizeMode = 'co
           source={displayUri}
           style={[style, rotateStyle]}
           contentFit={contentFit}
-          cachePolicy="memory-disk"
+          // Hero (full-size card face): keep bitmap in memory for instant flip.
+          // Thumbs: omit cachePolicy — defaults to 'disk', so bitmaps release on
+          // FlatList row recycle. Re-decode from disk on next show is cheap.
+          {...(thumb ? null : { cachePolicy: 'memory-disk' as const })}
+          // MTG card images are opaque JPEGs — RGB halves Android bitmap memory
+          // vs default ARGB. iOS ignores this prop.
+          decodeFormat="rgb"
+          // Thumbs in long lists: 'low' avoids decode-queue flooding on fast
+          // scroll. Hero: 'high' so detail screen feels instant.
+          priority={thumb ? 'low' : 'high'}
           recyclingKey={displayUri}
           onLoadEnd={onReady}
           transition={120}

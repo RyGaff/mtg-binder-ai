@@ -19,7 +19,7 @@ function DeckHeroImpl({ name, artCropUri, onBack, onMore }: Props) {
   return (
     <View style={[s.wrap, { height: 200 + insets.top }]}>
       {artCropUri
-        ? <Image source={artCropUri} style={s.fill} contentFit="cover" cachePolicy="memory-disk" recyclingKey={artCropUri} />
+        ? <Image source={artCropUri} style={s.fill} contentFit="cover" cachePolicy="memory-disk" priority="high" decodeFormat="rgb" recyclingKey={artCropUri} />
         : <View style={[s.fill, { backgroundColor: t.surface }]} />}
       <View style={s.scrim} />
       {/* Bottom toolbar: ← · deck name · ⋮ — single row anchored to the hero's bottom.

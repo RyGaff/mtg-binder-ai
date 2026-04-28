@@ -23,19 +23,21 @@ jest.mock('../../src/api/scryfall', () => ({
 }));
 
 jest.mock('../../src/api/cards', () => ({
-  resolveCardById: jest.fn(async (id: string) => ({
-    scryfall_id: id, name: 'Lightning Bolt', set_code: 'lea',
-    collector_number: '161', mana_cost: '{R}', type_line: 'Instant',
-    oracle_text: '', color_identity: '[]', image_uri: '',
-    prices: '{}', keywords: '[]', cached_at: 0,
-  })),
+  cacheCard: jest.fn(),
+  resolveCardById: jest.fn(),
+}));
+
+jest.mock('../../src/db/cards', () => ({
+  getCardBySetNumber: jest.fn(() => null),
+  isCardStale: jest.fn(() => false),
 }));
 
 import { parseSetAndNumber, scanCard } from '../../src/scanner/ocr';
 import { detectCardCorners } from '../../modules/card-detector/src';
 import * as ImageManipulator from 'expo-image-manipulator';
 import { fetchCardBySetNumber, fetchCardByName } from '../../src/api/scryfall';
-import { resolveCardById } from '../../src/api/cards';
+import { cacheCard } from '../../src/api/cards';
+import { getCardBySetNumber, isCardStale } from '../../src/db/cards';
 import TextRecognition from 'react-native-text-recognition';
 
 const mockDetect = detectCardCorners as jest.Mock;
@@ -43,7 +45,9 @@ const mockManipulate = ImageManipulator.manipulateAsync as jest.Mock;
 const mockRecognize = (TextRecognition as any).recognize as jest.Mock;
 const mockFetchBySet = fetchCardBySetNumber as jest.Mock;
 const mockFetchByName = fetchCardByName as jest.Mock;
-const mockResolveById = resolveCardById as jest.Mock;
+const mockCacheCard = cacheCard as jest.Mock;
+const mockGetCardBySet = getCardBySetNumber as jest.Mock;
+const mockIsStale = isCardStale as jest.Mock;
 
 const CORNERS: import('../../modules/card-detector/src').CardCorners = {
   topLeft:     { x: 0.1, y: 0.1 },
@@ -76,6 +80,8 @@ const stubManipulate = (width = 1000, height = 1400) => {
 
 beforeEach(() => {
   jest.clearAllMocks();
+  mockGetCardBySet.mockReturnValue(null);
+  mockIsStale.mockReturnValue(false);
   stubManipulate();
 });
 
@@ -134,8 +140,35 @@ describe('scanCard', () => {
     expect(result.strategy).toBe('set_number');
     expect(result.card.name).toBe('Lightning Bolt');
     expect(mockFetchBySet).toHaveBeenCalledWith('lea', '161');
-    expect(mockResolveById).toHaveBeenCalledWith(MOCK_CARD.scryfall_id);
+    // Single write-through after fetch — no second resolveCardById round-trip.
+    expect(mockCacheCard).toHaveBeenCalledWith(MOCK_CARD);
     expect(mockFetchByName).not.toHaveBeenCalled();
+  });
+
+  it('skips Scryfall when DB has a fresh row for (set, number)', async () => {
+    mockDetect.mockResolvedValue(CORNERS);
+    mockRecognize.mockResolvedValue(['161 R LEA EN']);
+    mockGetCardBySet.mockReturnValue(MOCK_CARD);
+    mockIsStale.mockReturnValue(false);
+
+    const result = await scanCard('file:///photo.jpg');
+
+    expect(result.strategy).toBe('set_number');
+    expect(result.card).toEqual(MOCK_CARD);
+    expect(mockFetchBySet).not.toHaveBeenCalled();
+    expect(mockCacheCard).toHaveBeenCalledWith(MOCK_CARD);
+  });
+
+  it('hits Scryfall when DB row exists but is stale', async () => {
+    mockDetect.mockResolvedValue(CORNERS);
+    mockRecognize.mockResolvedValue(['161 R LEA EN']);
+    mockGetCardBySet.mockReturnValue(MOCK_CARD);
+    mockIsStale.mockReturnValue(true);
+    mockFetchBySet.mockResolvedValue(MOCK_CARD);
+
+    await scanCard('file:///photo.jpg');
+
+    expect(mockFetchBySet).toHaveBeenCalledWith('lea', '161');
   });
 
   it('falls through to name strategy when set/number parse fails', async () => {
@@ -150,7 +183,7 @@ describe('scanCard', () => {
     expect(result.strategy).toBe('name');
     expect(result.card.name).toBe('Lightning Bolt');
     expect(mockFetchByName).toHaveBeenCalledWith('Lightning Bolt');
-    expect(mockResolveById).toHaveBeenCalledWith(MOCK_CARD.scryfall_id);
+    expect(mockCacheCard).toHaveBeenCalledWith(MOCK_CARD);
   });
 
   it('falls through to name strategy when Scryfall 404 on set/number', async () => {
@@ -165,7 +198,7 @@ describe('scanCard', () => {
 
     expect(result.strategy).toBe('name');
     expect(mockFetchByName).toHaveBeenCalledWith('Lightning Bolt');
-    expect(mockResolveById).toHaveBeenCalledWith(MOCK_CARD.scryfall_id);
+    expect(mockCacheCard).toHaveBeenCalledWith(MOCK_CARD);
   });
 
   it('throws when name region OCR returns no text', async () => {

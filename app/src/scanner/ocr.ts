@@ -2,8 +2,8 @@ import * as ImageManipulator from 'expo-image-manipulator';
 import { File, Paths } from 'expo-file-system';
 import { detectCardCorners, type CardCorners } from '../../modules/card-detector/src';
 import { fetchCardBySetNumber, fetchCardByName } from '../api/scryfall';
-import { resolveCardById } from '../api/cards';
-import type { CachedCard } from '../db/cards';
+import { cacheCard, resolveCardById } from '../api/cards';
+import { getCardBySetNumber, isCardStale, type CachedCard } from '../db/cards';
 import { findCardByImage, ImageMatch } from '../embeddings/imageSearch';
 
 // ── Types ────────────────────────────────────────────────────────────────────
@@ -159,6 +159,13 @@ export async function scanCard(
   onProgress?.({ step: 'bl_parsed', parsed });
 
   if (parsed) {
+    // DB precheck: a fresh row by (set, number) skips Scryfall entirely.
+    const cachedBySet = getCardBySetNumber(parsed.setCode, parsed.collectorNumber);
+    if (cachedBySet && !isCardStale(cachedBySet)) {
+      cacheCard(cachedBySet); // warm session cache for repeat scans
+      return { strategy: 'set_number', card: cachedBySet, corners, imageW: imgW, imageH: imgH, ocrText: blText, blText };
+    }
+
     let fetched: CachedCard | null = null;
     try {
       onProgress?.({ step: 'fetching', query: `${parsed.setCode.toUpperCase()} #${parsed.collectorNumber}` });
@@ -167,9 +174,8 @@ export async function scanCard(
       // Scryfall 404 or network error — fall through to name strategy
     }
     if (fetched) {
-      // Warm the session cache; later scans of the same card will skip Scryfall.
-      const hydrated = await resolveCardById(fetched.scryfall_id);
-      return { strategy: 'set_number', card: hydrated, corners, imageW: imgW, imageH: imgH, ocrText: blText, blText };
+      cacheCard(fetched); // single write-through; no second Scryfall hit
+      return { strategy: 'set_number', card: fetched, corners, imageW: imgW, imageH: imgH, ocrText: blText, blText };
     }
   }
 
@@ -197,8 +203,8 @@ export async function scanCard(
 
   onProgress?.({ step: 'fetching', query: `name: ${nameLine.trim()}` });
   const card = await fetchCardByName(nameLine.trim());
-  const hydrated = await resolveCardById(card.scryfall_id);
-  return { strategy: 'name', card: hydrated, corners, imageW: imgW, imageH: imgH, ocrText: tlText, blText };
+  cacheCard(card);
+  return { strategy: 'name', card, corners, imageW: imgW, imageH: imgH, ocrText: tlText, blText };
 }
 
 // ── Public: scanCardByImage ───────────────────────────────────────────────────

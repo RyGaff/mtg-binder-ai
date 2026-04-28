@@ -146,6 +146,8 @@ export default function BinderScreen() {
     setImportProgress(null);
     qc.invalidateQueries({ queryKey: ['collection'] });
     qc.invalidateQueries({ queryKey: ['collection-value'] });
+    // Bulk-imported cards may be open in detail screens — drop their RQ entries.
+    if (toUpsert.length) qc.invalidateQueries({ queryKey: ['card'] });
     sheet.show({
       title: 'Import Complete',
       subtitle: failed > 0 ? `Added ${added} cards. ${failed} could not be found.` : `Added ${added} cards.`,

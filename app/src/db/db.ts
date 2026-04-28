@@ -120,6 +120,26 @@ function initSchema(db: SQLite.SQLiteDatabase): void {
 
     -- Speeds up FK-driven joins from deck_cards -> cards on scryfall_id.
     CREATE INDEX IF NOT EXISTS deck_cards_scryfall_idx ON deck_cards (scryfall_id);
+
+    -- Cached Scryfall printings list per card name. Populated by usePrintings;
+    -- ranked by released_at order at fetch time so reads can sort cheaply.
+    CREATE TABLE IF NOT EXISTS printings (
+      card_name        TEXT NOT NULL,
+      scryfall_id      TEXT NOT NULL,
+      set_code         TEXT NOT NULL,
+      set_name         TEXT NOT NULL DEFAULT '',
+      collector_number TEXT NOT NULL,
+      image_uri        TEXT NOT NULL DEFAULT '',
+      image_uri_back   TEXT NOT NULL DEFAULT '',
+      layout           TEXT NOT NULL DEFAULT 'normal',
+      card_faces       TEXT NOT NULL DEFAULT '[]',
+      price_usd        TEXT,
+      price_usd_foil   TEXT,
+      released_rank    INTEGER NOT NULL DEFAULT 0,
+      cached_at        INTEGER NOT NULL,
+      PRIMARY KEY (card_name, scryfall_id)
+    );
+    CREATE INDEX IF NOT EXISTS printings_name_idx ON printings (card_name, released_rank);
   `);
   });
   // Migrate existing decks tables (added after initial release).

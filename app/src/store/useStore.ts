@@ -10,6 +10,7 @@ export type EmbeddingStatus = 'idle' | 'downloading' | 'error';
 export type SearchViewMode = 'list' | 'grid';
 export type SearchGridCols = 1 | 2 | 3 | 4 | 5;
 export type DeckListMode = 'banner' | 'compact';
+export type DeckViewMode = 'list' | 'grid';
 type ThemeSlots = [CustomTheme | null, CustomTheme | null, CustomTheme | null];
 type NavDir = 'initial' | 'forward' | 'backward';
 type TrailEntry = { id: string; name: string };
@@ -46,6 +47,11 @@ type Store = {
   // Deck list view preference
   deckListMode: DeckListMode;
   setDeckListMode: (mode: DeckListMode) => void;
+
+  // Per-deck view mode (list vs. grid). Keyed by deckId; missing entries fall
+  // back to 'list'. Persisted so the user's per-deck choice survives restarts.
+  deckViewModes: Record<number, DeckViewMode>;
+  setDeckViewMode: (deckId: number, mode: DeckViewMode) => void;
 
   // Card detail breadcrumb trail (in-memory)
   cardTrail: TrailEntry[];
@@ -106,6 +112,9 @@ export const useStore = create<Store>()(
       setSearchGridCols: (searchGridCols) => set({ searchGridCols }),
       deckListMode: 'banner',
       setDeckListMode: (deckListMode) => set({ deckListMode }),
+      deckViewModes: {},
+      setDeckViewMode: (deckId, mode) =>
+        set((state) => ({ deckViewModes: { ...state.deckViewModes, [deckId]: mode } })),
       theme: 'dark',
       setTheme: (theme) => set({ theme }),
       customThemes: [null, null, null],
@@ -131,6 +140,7 @@ export const useStore = create<Store>()(
         searchViewMode: state.searchViewMode,
         searchGridCols: state.searchGridCols,
         deckListMode: state.deckListMode,
+        deckViewModes: state.deckViewModes,
       }),
       merge: (persistedState, currentState) => ({
         ...currentState,

@@ -49,10 +49,12 @@ function pickImageUri(cv: EdhrecCardView): string {
   return '';
 }
 
-const scryfallImageByName = (name: string) =>
-  `https://api.scryfall.com/cards/named?fuzzy=${encodeURIComponent(name)}&format=image&version=normal`;
+// Direct file origin (cards.scryfall.io) is not rate-limited, unlike
+// api.scryfall.com/cards/* redirects. URL pattern is documented as stable.
 const scryfallImageById = (id: string) =>
-  `https://api.scryfall.com/cards/${id}?format=image&version=normal`;
+  id.length >= 2
+    ? `https://cards.scryfall.io/normal/front/${id[0]}/${id[1]}/${id}.jpg`
+    : '';
 
 export function slugify(name: string): string {
   return name
@@ -124,7 +126,7 @@ function extractEntries(data: EdhrecPage | null, metric: SynergyMetric): Synergy
       if (score === null) continue;
       seen.add(cv.name);
       const image_uri =
-        pickImageUri(cv) || (cv.id ? scryfallImageById(cv.id) : scryfallImageByName(cv.name));
+        pickImageUri(cv) || (cv.id ? scryfallImageById(cv.id) : '');
       out.push({
         name: cv.name,
         score,

@@ -130,6 +130,24 @@ export function isCardStale(card: CachedCard): boolean {
   return Date.now() - card.cached_at > STALE_MS;
 }
 
+const PRUNE_AGE_MS = 30 * 24 * 60 * 60 * 1000;
+
+/** Drop cache rows older than 30 days that aren't referenced by user data
+ *  (collection / decks / printings). Without this the table grows linearly
+ *  with every search and scan and FTS5 reindex cost climbs with it. */
+export function pruneStaleUnreferencedCards(): number {
+  const cutoff = Date.now() - PRUNE_AGE_MS;
+  const result = getDb().runSync(
+    `DELETE FROM cards
+     WHERE cached_at < ?
+       AND scryfall_id NOT IN (SELECT scryfall_id FROM collection_entries)
+       AND scryfall_id NOT IN (SELECT scryfall_id FROM deck_cards)
+       AND scryfall_id NOT IN (SELECT scryfall_id FROM printings)`,
+    [cutoff],
+  );
+  return result.changes;
+}
+
 export function searchCardsLocal(query: string, limit = 20): CachedCard[] {
   // Joining on rowid is faster than on TEXT scryfall_id — cards_fts uses content=cards so rowids match 1:1.
   return getDb().getAllSync<CachedCard>(

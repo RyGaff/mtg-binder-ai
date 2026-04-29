@@ -95,15 +95,55 @@ export function normalizeScryfallCard(card: ScryfallCard): CachedCard {
   };
 }
 
-// Scryfall asks for ~100ms between requests. Serialize + space outbound calls.
-const MIN_GAP_MS = 100;
+// Scryfall hard limits: /cards/search, /cards/named, /cards/collection,
+// /cards/random are 2/sec (500ms). All other endpoints are 10/sec (100ms).
+// One global chain so concurrent callers serialize; gap picked per URL.
+const SLOW_GAP_MS = 500;
+const FAST_GAP_MS = 100;
+const SLOW_PATHS = ['/cards/search', '/cards/named', '/cards/collection', '/cards/random'];
+
 let requestChain: Promise<unknown> = Promise.resolve();
 let lastFinish = 0;
 
-function throttled<T>(run: () => Promise<T>): Promise<T> {
+function gapFor(url: string): number {
+  return SLOW_PATHS.some((p) => url.includes(p)) ? SLOW_GAP_MS : FAST_GAP_MS;
+}
+
+// Hermes (RN) doesn't ship DOMException, so synthesize an AbortError-shaped
+// Error: name='AbortError' is what fetch/AbortController consumers check.
+function abortError(signal: AbortSignal): Error {
+  if (signal.reason instanceof Error) return signal.reason;
+  const e = new Error('Aborted');
+  e.name = 'AbortError';
+  return e;
+}
+
+/** Serialize + space any Scryfall call. Exposed so non-GET callers (e.g. POST
+ * /cards/collection in deckImport) share the same outbound queue. Honors the
+ * caller's AbortSignal during the throttle wait so aborts don't keep the
+ * chain pinned on a hung in-flight fetch. */
+export function throttledScryfall<T>(
+  url: string,
+  run: () => Promise<T>,
+  signal?: AbortSignal,
+): Promise<T> {
   const next = requestChain.then(async () => {
-    const wait = Math.max(0, MIN_GAP_MS - (Date.now() - lastFinish));
-    if (wait > 0) await new Promise((r) => setTimeout(r, wait));
+    if (signal?.aborted) throw abortError(signal);
+    const waitMs = Math.max(0, gapFor(url) - (Date.now() - lastFinish));
+    if (waitMs > 0) {
+      await new Promise<void>((resolve, reject) => {
+        const t = setTimeout(resolve, waitMs);
+        signal?.addEventListener(
+          'abort',
+          () => {
+            clearTimeout(t);
+            reject(abortError(signal));
+          },
+          { once: true },
+        );
+      });
+    }
+    if (signal?.aborted) throw abortError(signal);
     try {
       return await run();
     } finally {
@@ -115,15 +155,19 @@ function throttled<T>(run: () => Promise<T>): Promise<T> {
 }
 
 async function get<T>(url: string, signal?: AbortSignal): Promise<T> {
-  return throttled(async () => {
-    const res = await fetch(url, { headers: HEADERS, signal });
-    if (!res.ok) {
-      const err = new Error(`Scryfall ${res.status}: ${url}`) as Error & { status?: number };
-      err.status = res.status;
-      throw err;
-    }
-    return res.json();
-  });
+  return throttledScryfall(
+    url,
+    async () => {
+      const res = await fetch(url, { headers: HEADERS, signal });
+      if (!res.ok) {
+        const err = new Error(`Scryfall ${res.status}: ${url}`) as Error & { status?: number };
+        err.status = res.status;
+        throw err;
+      }
+      return res.json();
+    },
+    signal,
+  );
 }
 
 export async function fetchCardById(id: string, signal?: AbortSignal): Promise<CachedCard> {

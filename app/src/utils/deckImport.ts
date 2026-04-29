@@ -1,6 +1,6 @@
 import { upsertCard, type CachedCard } from '../db/cards';
 import { addCardToDeck, ensureDeckArt, type Board } from '../db/decks';
-import { fetchCardByName, normalizeScryfallCard } from '../api/scryfall';
+import { fetchCardByName, normalizeScryfallCard, throttledScryfall } from '../api/scryfall';
 
 export type ParsedLine = { quantity: number; name: string; board: Board };
 export type ParsedDeck = { lines: ParsedLine[] };
@@ -129,20 +129,29 @@ export async function resolveDeckCards(
 
   for (let i = 0; i < uniqueOriginals.length; i += COLLECTION_CHUNK_SIZE) {
     if (signal?.aborted) {
-      throw signal.reason instanceof Error
-        ? signal.reason
-        : new DOMException('Aborted', 'AbortError');
+      if (signal.reason instanceof Error) throw signal.reason;
+      const e = new Error('Aborted');
+      e.name = 'AbortError';
+      throw e;
     }
     const chunk = uniqueOriginals.slice(i, i + COLLECTION_CHUNK_SIZE);
     const body = JSON.stringify({
       identifiers: chunk.map((name) => ({ name })),
     });
-    const res = await fetch(`${SCRYFALL_BASE}/cards/collection`, {
-      method: 'POST',
-      headers: SCRYFALL_HEADERS,
-      body,
+    const url = `${SCRYFALL_BASE}/cards/collection`;
+    // /cards/collection is rate-limited at 2/sec; route through the shared
+    // Scryfall throttle so chunks don't pile up back-to-back.
+    const res = await throttledScryfall(
+      url,
+      () =>
+        fetch(url, {
+          method: 'POST',
+          headers: SCRYFALL_HEADERS,
+          body,
+          signal,
+        }),
       signal,
-    });
+    );
     if (!res.ok) {
       throw new Error(`Scryfall ${res.status}: /cards/collection`);
     }

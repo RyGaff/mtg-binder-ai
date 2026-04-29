@@ -10,6 +10,7 @@ import { upsertCard, type CachedCard } from '../db/cards';
 import { addCardToDeck, createDeck, type Board } from '../db/decks';
 import { parseDeckText, resolveDeckCards, type ParsedLine } from '../utils/deckImport';
 import { fetchDeckFromUrl, parseDeckSourceUrl } from '../api/deckSources';
+import { LruCache } from '../api/lruCache';
 import { useTheme } from '../theme/useTheme';
 
 // Duplicated from app/(tabs)/decks.tsx — small const list, importing across the
@@ -141,7 +142,9 @@ export function ImportDeckSheet({ visible, onClose, onImported }: Props): ReactE
 
   // Resolved-card cache (lowercased name → CachedCard | null). Survives the
   // life of the component instance; null = known-bad so we don't re-request.
-  const cacheRef = useRef<Map<string, CachedCard | null>>(new Map());
+  // Bounded so a long paste session can't grow without bound — 2000 unique
+  // names covers any realistic decklist plus retries.
+  const cacheRef = useRef<LruCache<string, CachedCard | null>>(new LruCache(2000));
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const abortRef = useRef<AbortController | null>(null);
   const fetchAbortRef = useRef<AbortController | null>(null);

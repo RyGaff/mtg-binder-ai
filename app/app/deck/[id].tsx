@@ -1,4 +1,4 @@
-import { ActivityIndicator, FlatList, Pressable, RefreshControl, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
+import { ActivityIndicator, FlatList, Pressable, RefreshControl, StyleSheet, Text, TouchableOpacity, useWindowDimensions, View } from 'react-native';
 import { Image } from 'expo-image';
 import { useFocusEffect, useLocalSearchParams, useRouter } from 'expo-router';
 import { useCallback, useMemo, useRef, useState } from 'react';
@@ -8,8 +8,8 @@ import * as Sharing from 'expo-sharing';
 import * as FileSystem from 'expo-file-system/legacy';
 import {
   addCardToDeck, decrementCardInDeck, deleteDeck, exportDeckAsText, getDeck, getDeckCards,
-  removeCardFromDeck, setDeckArt,
-  type DeckCard,
+  moveCardToBoard, removeCardFromDeck, setDeckArt,
+  type Board, type DeckCard,
 } from '../../src/db/decks';
 import { fetchArtCrop } from '../../src/api/scryfall';
 import { useStore } from '../../src/store/useStore';
@@ -30,6 +30,10 @@ export default function DeckDetailScreen() {
   const { id } = useLocalSearchParams<{ id: string }>();
   const deckId = Number(id);
   const setActiveDeckId = useStore((s) => s.setActiveDeckId);
+  // Per-deck view mode lives in client state (Zustand, persisted) — switching is
+  // a UI preference, not a property of the deck, so it never touches the DB.
+  const viewMode = useStore((s) => s.deckViewModes[deckId] ?? 'list');
+  const setDeckViewMode = useStore((s) => s.setDeckViewMode);
   const insets = useSafeAreaInsets();
 
   // Deck row + its cards. TanStack Query keeps both fresh across navigations.
@@ -54,6 +58,16 @@ export default function DeckDetailScreen() {
   // proper, so they shouldn't crowd the scroll surface unless the user opts in.
   const [consideringOpen, setConsideringOpen] = useState(false);
   const sheet = useActionSheet();
+
+  // Grid view geometry — tile target ~120pt wide; columns derived from window width
+  // so phones land on 2–3 cols, larger tablets get more. Tile aspect locked to MTG 5:7.
+  const { width: screenWidth } = useWindowDimensions();
+  const GRID_PADDING = 14;
+  const GRID_GAP = 8;
+  const TILE_TARGET = 120;
+  const gridCols = Math.max(2, Math.floor((screenWidth - GRID_PADDING * 2 + GRID_GAP) / (TILE_TARGET + GRID_GAP)));
+  const tileWidth = Math.floor((screenWidth - GRID_PADDING * 2 - GRID_GAP * (gridCols - 1)) / gridCols);
+  const tileHeight = Math.round(tileWidth * 7 / 5);
 
   // Derived view-model values, all memoized on `cards`.
   const sections = useMemo(() => buildSections(cards), [cards]);
@@ -107,12 +121,26 @@ export default function DeckDetailScreen() {
         }
       } catch (e) { console.warn('fetchArtCrop failed', e); }
     } };
+    // "Move to <board>" — one entry per board the card isn't already on. Quantities
+    // merge if a row already exists on the target. Order mirrors the section order
+    // on screen (Commander → Main → Sideboard → Considering).
+    const BOARD_LABEL: Record<Board, string> = {
+      commander: 'Commander', main: 'Main', side: 'Sideboard', considering: 'Considering',
+    };
+    const ALL_BOARDS: Board[] = ['commander', 'main', 'side', 'considering'];
+    const moveActions = ALL_BOARDS
+      .filter((b) => b !== card.board)
+      .map((b) => ({ label: `Move to ${BOARD_LABEL[b]}`, onPress: () => {
+        moveCardToBoard(deckId, card.scryfall_id, card.board, b);
+        invalidateAll();
+      } }));
     // Single-copy: only show one destructive Remove (no need for the qty distinction).
     if (card.quantity <= 1) {
       sheet.show({
         title: card.name,
         actions: [
           setArtAction,
+          ...moveActions,
           { label: 'Remove', destructive: true, onPress: () => {
             removeCardFromDeck(deckId, card.scryfall_id, card.board);
             invalidateAll();
@@ -125,6 +153,7 @@ export default function DeckDetailScreen() {
       title: card.name,
       actions: [
         setArtAction,
+        ...moveActions,
         { label: 'Remove 1', onPress: () => {
           decrementCardInDeck(deckId, card.scryfall_id, card.board);
           invalidateAll();
@@ -162,14 +191,18 @@ export default function DeckDetailScreen() {
         ],
       });
     };
+    const toggleView = () => {
+      setDeckViewMode(deckId, viewMode === 'grid' ? 'list' : 'grid');
+    };
     sheet.show({
       title: name,
       actions: [
+        { label: viewMode === 'grid' ? 'View: List' : 'View: Grid', onPress: toggleView },
         { label: 'Export', onPress: () => { void exportDeck(); } },
         { label: 'Delete deck', destructive: true, onPress: confirmDelete },
       ],
     });
-  }, [deck?.name, deckId, exportDeck, qc, router, sheet]);
+  }, [deck?.name, deckId, exportDeck, qc, router, sheet, viewMode, setDeckViewMode]);
 
   // FAB → opens in-page AddCardsSheet. Sets active deck so card-detail "Add to deck" knows the target.
   const openAdd = useCallback(() => {
@@ -351,12 +384,88 @@ export default function DeckDetailScreen() {
   // its own affordances (e.g., quick "promote to main" gesture).
   const renderConsideringItem = useCallback((item: DeckCard) => renderTextRow(item), [renderTextRow]);
 
+  // Grid tile — used in 'grid' view mode for every board (commander included). Image
+  // takes the full tile width at MTG 5:7 aspect; qty badge overlays the corner when
+  // the row holds 2+ copies; name truncates beneath. Tap navigates to /card/[id];
+  // long-press opens the same action sheet as text rows.
+  const renderGridTile = useCallback((item: DeckCard) => {
+    const thumb = item.image_uri ? item.image_uri.replace('/normal.', '/small.') : null;
+    return (
+      <View style={{ width: tileWidth }}>
+        <Pressable
+          onPress={() => router.push(`/card/${item.scryfall_id}`)}
+          onLongPress={() => cardOptions(item)}
+          delayLongPress={250}
+          style={({ pressed }) => [pressed && { opacity: 0.6 }]}
+        >
+          {thumb ? (
+            <Image
+              source={thumb}
+              style={{ width: tileWidth, height: tileHeight, borderRadius: 6 }}
+              contentFit="cover"
+              cachePolicy="memory-disk"
+              recyclingKey={thumb}
+            />
+          ) : (
+            <View style={{ width: tileWidth, height: tileHeight, borderRadius: 6, backgroundColor: t.border }} />
+          )}
+        </Pressable>
+        <View style={s.tileLabelRow}>
+          <Text style={[s.tileName, { color: t.text }]} numberOfLines={1}>{item.name}</Text>
+          <Pressable
+            onPress={() => cardOptions(item)}
+            hitSlop={8}
+            accessibilityRole="button"
+            accessibilityLabel={`Options for ${item.name}`}
+            style={({ pressed }) => [s.tileMenu, pressed && { opacity: 0.5 }]}
+          >
+            <Text style={[s.tileMenuIcon, { color: t.textSecondary }]}>⋮</Text>
+          </Pressable>
+        </View>
+        {/* Stepper [−][qty][+] beneath the name row — same affordance as list-view rows.
+            Centered within the tile so multi-digit counts don't jitter the row. */}
+        <View style={s.tileStepper}>
+          <TouchableOpacity
+            onPress={() => decCard(item)}
+            hitSlop={6}
+            accessibilityRole="button"
+            accessibilityLabel={`Remove one ${item.name}`}
+            style={[s.stepBtn, { borderColor: t.border }]}
+          >
+            <Text style={[s.stepIcon, { color: t.textSecondary }]}>−</Text>
+          </TouchableOpacity>
+          <Text style={[s.stepCount, { color: t.text }]}>{item.quantity}</Text>
+          <TouchableOpacity
+            onPress={() => incCard(item)}
+            hitSlop={6}
+            accessibilityRole="button"
+            accessibilityLabel={`Add one ${item.name}`}
+            style={[s.stepBtn, { borderColor: t.border }]}
+          >
+            <Text style={[s.stepIcon, { color: t.textSecondary }]}>+</Text>
+          </TouchableOpacity>
+        </View>
+      </View>
+    );
+  }, [router, cardOptions, incCard, decCard, tileWidth, tileHeight, t]);
+
+  // One row of N tiles in the grid. Header rows (board / type) still render full-width
+  // above each chunk so section structure is preserved.
+  const renderGridRowItems = useCallback((items: DeckCard[]) => (
+    <View style={[s.gridRow, { paddingHorizontal: GRID_PADDING, gap: GRID_GAP }]}>
+      {items.map((item) => (
+        <View key={`${item.board}:${item.scryfall_id}`}>{renderGridTile(item)}</View>
+      ))}
+    </View>
+  ), [renderGridTile]);
+
   // Flatten sections into a single row stream. Each entry is either a 'header' or a 'card'
   // row — FlatList renders them as siblings, so there's NO sticky-header machinery and no
   // chance of iOS pinning a header against our wishes.
   type FlatRow =
     | { kind: 'header'; section: RowSection; key: string }
-    | { kind: 'card'; item: DeckCard; key: string };
+    | { kind: 'card'; item: DeckCard; key: string }
+    | { kind: 'gridrow'; items: DeckCard[]; key: string };
   const flatData = useMemo<FlatRow[]>(() => {
     const out: FlatRow[] = [];
     for (const section of sections) {
@@ -364,22 +473,33 @@ export default function DeckDetailScreen() {
       // Considering rows hide when the section is collapsed; the header stays so the
       // user can re-expand it. Toggle state lives on consideringOpen.
       if (section.title === 'Considering' && !consideringOpen) continue;
-      for (const item of section.data) {
-        out.push({ kind: 'card', item, key: `c:${item.board}:${item.scryfall_id}` });
+      if (viewMode === 'grid') {
+        // Chunk this section's cards into rows of `gridCols` tiles. Section boundaries
+        // never bleed into a neighbor's chunk so each board/type still reads as a group.
+        for (let i = 0; i < section.data.length; i += gridCols) {
+          const items = section.data.slice(i, i + gridCols);
+          out.push({ kind: 'gridrow', items, key: `g:${section.kind}:${section.title}:${i}` });
+        }
+      } else {
+        for (const item of section.data) {
+          out.push({ kind: 'card', item, key: `c:${item.board}:${item.scryfall_id}` });
+        }
       }
     }
     return out;
-  }, [sections, consideringOpen]);
+  }, [sections, consideringOpen, viewMode, gridCols]);
 
   // FlatList row dispatcher — header rows render the section heading, card rows pick the
-  // right per-board card renderer (commander tile / main row / sideboard row).
+  // right per-board card renderer (commander tile / main row / sideboard row), gridrow
+  // renders an N-tile chunk in grid view.
   const renderItem = useCallback(({ item: row }: { item: FlatRow }) => {
     if (row.kind === 'header') return renderSectionHeader(row.section);
+    if (row.kind === 'gridrow') return renderGridRowItems(row.items);
     if (row.item.board === 'commander') return renderCommanderItem(row.item);
     if (row.item.board === 'side') return renderSideItem(row.item);
     if (row.item.board === 'considering') return renderConsideringItem(row.item);
     return renderMainItem(row.item);
-  }, [renderSectionHeader, renderCommanderItem, renderMainItem, renderSideItem, renderConsideringItem]);
+  }, [renderSectionHeader, renderCommanderItem, renderMainItem, renderSideItem, renderConsideringItem, renderGridRowItems]);
 
   // NaN guard — if the route param wasn't a real number, render a tiny "not found" view.
   // Hooks above run unconditionally; queries are disabled via `enabled` so this is safe.
@@ -595,4 +715,17 @@ const s = StyleSheet.create({
   },
   // FAB plus icon.
   fabLabel: { color: 'white', fontSize: 28, fontWeight: '300', marginTop: -2 },
+  // Grid view: row of N tiles. Outer paddingHorizontal mirrors text-row inset so grid
+  // and list views align horizontally; gap supplied inline (depends on screen width).
+  gridRow: { flexDirection: 'row', paddingVertical: 6 },
+  // Tile label row — name (flex:1, truncates) + inline ⋮ menu button. Sits beneath
+  // the image; same plain-text ⋮ treatment as the text-row and commander menus.
+  tileLabelRow: { flexDirection: 'row', alignItems: 'center', marginTop: 4, gap: 4 },
+  // Per-tile name — single line, dim. flex:1 so the ⋮ button sits flush to the
+  // tile's right edge while the name truncates within the remaining width.
+  tileName: { flex: 1, fontSize: 11, fontWeight: '600', textAlign: 'center' },
+  tileMenu: { paddingHorizontal: 4, paddingVertical: 2 },
+  tileMenuIcon: { fontSize: 14, fontWeight: '700', lineHeight: 16, includeFontPadding: false } as const,
+  // Stepper row beneath the name — centered [−][qty][+] flush within tile width.
+  tileStepper: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 4, marginTop: 4 },
 });

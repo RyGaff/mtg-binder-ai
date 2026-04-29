@@ -171,6 +171,32 @@ export function decrementCardInDeck(deckId: number, scryfallId: string, board: B
   );
 }
 
+/**
+ * Move a card row from one board to another within the same deck. If the target
+ * board already has a row for this card, quantities are merged; the source row
+ * is deleted unconditionally. No-op when fromBoard === toBoard.
+ */
+export function moveCardToBoard(deckId: number, scryfallId: string, fromBoard: Board, toBoard: Board): void {
+  if (fromBoard === toBoard) return;
+  const db = getDb();
+  db.withTransactionSync(() => {
+    const src = db.getFirstSync<{ quantity: number }>(
+      'SELECT quantity FROM deck_cards WHERE deck_id = ? AND scryfall_id = ? AND board = ?',
+      [deckId, scryfallId, fromBoard]
+    );
+    if (!src) return;
+    db.runSync(
+      `INSERT INTO deck_cards (deck_id, scryfall_id, quantity, board) VALUES (?, ?, ?, ?)
+       ON CONFLICT(deck_id, scryfall_id, board) DO UPDATE SET quantity = quantity + excluded.quantity`,
+      [deckId, scryfallId, src.quantity, toBoard]
+    );
+    db.runSync(
+      'DELETE FROM deck_cards WHERE deck_id = ? AND scryfall_id = ? AND board = ?',
+      [deckId, scryfallId, fromBoard]
+    );
+  });
+}
+
 export function deleteDeck(deckId: number): void {
   getDb().runSync('DELETE FROM decks WHERE id = ?', [deckId]);
 }

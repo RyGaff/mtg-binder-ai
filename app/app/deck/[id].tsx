@@ -7,18 +7,20 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import * as Sharing from 'expo-sharing';
 import * as FileSystem from 'expo-file-system/legacy';
 import {
-  addCardToDeck, decrementCardInDeck, deleteDeck, exportDeckAsText, getDeck, getDeckCards,
-  moveCardToBoard, removeCardFromDeck, setDeckArt,
+  addCardToDeck, clearDeckHistory, decrementCardInDeck, deleteDeck, exportDeckAsText,
+  getDeck, getDeckCards, moveCardToBoard, removeCardFromDeck, setDeckArt,
   type Board, type DeckCard,
 } from '../../src/db/decks';
 import { fetchArtCrop } from '../../src/api/scryfall';
 import { useStore } from '../../src/store/useStore';
 import { useTheme } from '../../src/theme/useTheme';
 import { AddCardsSheet } from '../../src/components/AddCardsSheet';
+import { ChangePrintingSheet } from '../../src/components/ChangePrintingSheet';
 import { useActionSheet } from '../../src/components/ActionSheet';
 import { DeckHero } from '../../src/components/DeckHero';
 import { DeckInfoStrip } from '../../src/components/DeckInfoStrip';
 import { DeckStatsPanel } from '../../src/components/DeckStatsPanel';
+import { DeckHistoryPanel } from '../../src/components/DeckHistoryPanel';
 import { ManaCost } from '../../src/components/ManaCost';
 import { boardPrice, cardPriceUsd } from '../../src/utils/deckStats';
 import { buildSections, type RowSection } from '../../src/utils/deckSections';
@@ -49,7 +51,26 @@ export default function DeckDetailScreen() {
   const onRefresh = useCallback(() => { deckQ.refetch(); cardsQ.refetch(); }, [deckQ, cardsQ]);
 
   // Local UI state: stats panel collapse, add-card sheet visibility, generic action sheet hook.
+  // Stats and History panels are mutually exclusive — opening one closes the other so
+  // the page doesn't grow two large stacked panels.
   const [statsOpen, setStatsOpen] = useState(false);
+  const [historyOpen, setHistoryOpen] = useState(false);
+  // Card whose printing the user is currently swapping. Non-null = sheet visible.
+  const [printingTarget, setPrintingTarget] = useState<DeckCard | null>(null);
+  // Speed-dial open state. When true the FAB cluster expands: an "Add card"
+  // button stacks above the FAB and a column of nav buttons (Top / Main /
+  // Sideboard / Considering) sits to the left.
+  const [fabOpen, setFabOpen] = useState(false);
+  // FlatList ref drives the nav-button scroll targets. FlatRow is declared
+  // further down in this component, so the ref is left ungeneric.
+  const listRef = useRef<FlatList>(null);
+  // Live scroll offset, kept in a ref so onScroll updates don't re-render the
+  // screen. Read only when a nav button captures the user's "previous spot"
+  // before teleporting elsewhere.
+  const currentOffsetRef = useRef(0);
+  // Saved offset from the last nav-button press. null = nothing to restore yet.
+  // State (not ref) because the Restore button's disabled prop reflects it.
+  const [savedOffset, setSavedOffset] = useState<number | null>(null);
   const [addOpen, setAddOpen] = useState(false);
   // Set when the user inspects a card from inside AddCardsSheet — read on next focus
   // to auto-reopen the sheet so its retained search reappears.
@@ -90,14 +111,31 @@ export default function DeckDetailScreen() {
   const mainCards = useMemo(() => cards.filter((c) => c.board === 'main'), [cards]);
   const commanderCards = useMemo(() => cards.filter((c) => c.board === 'commander'), [cards]);
   const sideCards = useMemo(() => cards.filter((c) => c.board === 'side'), [cards]);
+  // Commander color identity — merged across all cards on the commander board
+  // (covers partner/background pairs). Lowercased + ordered WUBRG; empty CI
+  // collapses to 'c' so Scryfall's `commander:c` returns colorless legals.
+  const commanderColorIdentity = useMemo(() => {
+    const set = new Set<string>();
+    for (const c of commanderCards) {
+      try {
+        for (const k of JSON.parse(c.color_identity || '[]') as string[]) {
+          const lk = k.toLowerCase();
+          if ('wubrg'.includes(lk)) set.add(lk);
+        }
+      } catch { /* skip malformed JSON */ }
+    }
+    if (set.size === 0) return 'c';
+    return ['w', 'u', 'b', 'r', 'g'].filter((c) => set.has(c)).join('');
+  }, [commanderCards]);
 
   // Long-press on any card row → action sheet with Set as deck art / Remove options.
   const cardOptions = useCallback((card: DeckCard) => {
-    // Shared post-mutation invalidations: refresh card list, deck row (card_count), deck index.
+    // Shared post-mutation invalidations: refresh card list, deck row (card_count), deck index, history.
     const invalidateAll = () => {
       qc.invalidateQueries({ queryKey: ['deck-cards', deckId] });
       qc.invalidateQueries({ queryKey: ['deck', deckId] });
       qc.invalidateQueries({ queryKey: ['decks'] });
+      qc.invalidateQueries({ queryKey: ['deck-history', deckId] });
     };
     // "Remove all" is a destructive irreversible op — chain into a confirm sheet.
     const confirmRemoveAll = () => {
@@ -111,6 +149,7 @@ export default function DeckDetailScreen() {
         ],
       });
     };
+    const changePrintingAction = { label: 'Change printing', onPress: () => setPrintingTarget(card) };
     const setArtAction = { label: 'Set as deck art', onPress: async () => {
       try {
         const uri = await fetchArtCrop(card.scryfall_id);
@@ -140,6 +179,7 @@ export default function DeckDetailScreen() {
         title: card.name,
         actions: [
           setArtAction,
+          changePrintingAction,
           ...moveActions,
           { label: 'Remove', destructive: true, onPress: () => {
             removeCardFromDeck(deckId, card.scryfall_id, card.board);
@@ -194,11 +234,26 @@ export default function DeckDetailScreen() {
     const toggleView = () => {
       setDeckViewMode(deckId, viewMode === 'grid' ? 'list' : 'grid');
     };
+    // "Clear history" is destructive (it can't be undone — the deck_history rows
+    // are gone), so chain into a confirm sheet rather than wiping on first tap.
+    const confirmClearHistory = () => {
+      sheet.show({
+        title: `Clear history for "${name}"?`,
+        subtitle: 'Past add/remove/move events will be deleted. Cards in the deck are unaffected.',
+        actions: [
+          { label: 'Clear history', destructive: true, onPress: () => {
+            clearDeckHistory(deckId);
+            qc.invalidateQueries({ queryKey: ['deck-history', deckId] });
+          } },
+        ],
+      });
+    };
     sheet.show({
       title: name,
       actions: [
         { label: viewMode === 'grid' ? 'View: List' : 'View: Grid', onPress: toggleView },
         { label: 'Export', onPress: () => { void exportDeck(); } },
+        { label: 'Clear history', onPress: confirmClearHistory },
         { label: 'Delete deck', destructive: true, onPress: confirmDelete },
       ],
     });
@@ -208,16 +263,22 @@ export default function DeckDetailScreen() {
   const openAdd = useCallback(() => {
     setActiveDeckId(deckId);
     setAddOpen(true);
+    setFabOpen(false);
   }, [deckId, setActiveDeckId]);
+
 
   // Re-focus handler — fires whenever this screen regains focus (mount, return from
   // child route). If the user just left to inspect a card from inside the sheet, the
   // ref flag is true; reopen the sheet so its retained search snaps back into view.
+  // Deferred by a frame so the navigator's modal dismissal animation finishes
+  // committing before we mount the RN Modal again — otherwise iOS can land in a
+  // state where a subsequent close leaves an invisible touch interceptor.
   useFocusEffect(
     useCallback(() => {
       if (resumeAddOnFocus.current) {
         resumeAddOnFocus.current = false;
-        setAddOpen(true);
+        const id = requestAnimationFrame(() => setAddOpen(true));
+        return () => cancelAnimationFrame(id);
       }
     }, [])
   );
@@ -259,16 +320,22 @@ export default function DeckDetailScreen() {
     qc.invalidateQueries({ queryKey: ['deck-cards', deckId] });
     qc.invalidateQueries({ queryKey: ['deck', deckId] });
     qc.invalidateQueries({ queryKey: ['decks'] });
+    qc.invalidateQueries({ queryKey: ['deck-history', deckId] });
   }, [qc, deckId]);
 
   // Inline + / − stepper handlers. + adds another copy; − decrements (delete on 0).
+  // Stepper interactions also close the history panel — once the user starts
+  // editing a row, the timeline above is stale until the new event lands and
+  // forcing them to scroll past it adds noise.
   const incCard = useCallback((item: DeckCard) => {
     addCardToDeck({ deck_id: deckId, scryfall_id: item.scryfall_id, quantity: 1, board: item.board });
     invalidateAfterRowMutation();
+    setHistoryOpen(false);
   }, [deckId, invalidateAfterRowMutation]);
   const decCard = useCallback((item: DeckCard) => {
     decrementCardInDeck(deckId, item.scryfall_id, item.board);
     invalidateAfterRowMutation();
+    setHistoryOpen(false);
   }, [deckId, invalidateAfterRowMutation]);
 
   // Shared text-row builder — [−][qty][+] · mana · name · price · ⋮. The leftmost
@@ -489,6 +556,55 @@ export default function DeckDetailScreen() {
     return out;
   }, [sections, consideringOpen, viewMode, gridCols]);
 
+  // Map each board → its header row index in flatData. Powers the speed-dial
+  // nav buttons; empty entries (deck has no Considering, etc.) disable the
+  // matching button instead of being hidden.
+  const headerIndexByBoard = useMemo(() => {
+    const m: Partial<Record<Board, number>> = {};
+    flatData.forEach((row, i) => {
+      if (row.kind === 'header' && row.section.kind === 'board') {
+        const title = row.section.title;
+        if (title === 'Commander') m.commander = i;
+        else if (title === 'Main') m.main = i;
+        else if (title === 'Sideboard') m.side = i;
+        else if (title === 'Considering') m.considering = i;
+      }
+    });
+    return m;
+  }, [flatData]);
+
+  // Speed-dial nav helpers. Top scrolls to the very beginning (hero band);
+  // board buttons jump to that section's header row. We disable the scroll
+  // animation here — FlatList's animated scroll uses a fixed platform-default
+  // duration that feels sluggish for a navigation jump. Instant feels snappier
+  // and matches what the user is asking the menu to do (teleport, not glide).
+  // Each nav button also captures the user's current offset into savedOffset
+  // so the Restore button can teleport them back where they were.
+  const captureCurrentOffset = useCallback(() => {
+    setSavedOffset(currentOffsetRef.current);
+  }, []);
+  const scrollToTop = useCallback(() => {
+    captureCurrentOffset();
+    listRef.current?.scrollToOffset({ offset: 0, animated: false });
+    setFabOpen(false);
+  }, [captureCurrentOffset]);
+  const scrollToBoard = useCallback((b: Board) => {
+    const idx = headerIndexByBoard[b];
+    if (idx == null) return;
+    captureCurrentOffset();
+    listRef.current?.scrollToIndex({ index: idx, viewPosition: 0, animated: false });
+    setFabOpen(false);
+  }, [headerIndexByBoard, captureCurrentOffset]);
+  // Restore re-uses the saved offset and clears it so the button disables
+  // again until the next nav press. We don't snapshot the user's offset before
+  // restoring — restoring should not itself become the "previous spot".
+  const restoreOffset = useCallback(() => {
+    if (savedOffset == null) return;
+    listRef.current?.scrollToOffset({ offset: savedOffset, animated: false });
+    setSavedOffset(null);
+    setFabOpen(false);
+  }, [savedOffset]);
+
   // FlatList row dispatcher — header rows render the section heading, card rows pick the
   // right per-board card renderer (commander tile / main row / sideboard row), gridrow
   // renders an N-tile chunk in grid view.
@@ -557,21 +673,28 @@ export default function DeckDetailScreen() {
       mainCount={mainCount}
       sideCount={sideCount}
       totalPrice={totalPrice}
-      expanded={statsOpen}
-      onToggleStats={() => setStatsOpen((v) => !v)}
+      statsExpanded={statsOpen}
+      historyExpanded={historyOpen}
+      onToggleStats={() => { setStatsOpen((v) => !v); setHistoryOpen(false); }}
+      onToggleHistory={() => { setHistoryOpen((v) => !v); setStatsOpen(false); }}
     />
-  ), [deck?.format, colorIdentity, mainCount, sideCount, totalPrice, statsOpen]);
+  ), [deck?.format, colorIdentity, mainCount, sideCount, totalPrice, statsOpen, historyOpen]);
 
   const renderStatsPanel = useCallback(() => (
     statsOpen ? <DeckStatsPanel main={mainCards} commander={commanderCards} side={sideCards} format={deck?.format ?? ''} /> : null
   ), [statsOpen, mainCards, commanderCards, sideCards, deck?.format]);
 
-  // Composed list header — the three header functions concatenated in order.
+  const renderHistoryPanel = useCallback(() => (
+    historyOpen ? <DeckHistoryPanel deckId={deckId} /> : null
+  ), [historyOpen, deckId]);
+
+  // Composed list header — hero + info strip + at most one expanded panel.
   const ListHeader = (
     <>
       {renderHero()}
       {renderInfoStrip()}
       {renderStatsPanel()}
+      {renderHistoryPanel()}
     </>
   );
 
@@ -594,8 +717,9 @@ export default function DeckDetailScreen() {
       {/* FlatList over a flattened header+card row stream — no SectionList means no
           sticky-header behavior is possible on any platform. */}
       <FlatList
+        ref={listRef}
         data={isLoading ? [] : flatData}
-        keyExtractor={(row) => row.key}
+        keyExtractor={(row) => (row as FlatRow).key}
         renderItem={renderItem}
         ListHeaderComponent={ListHeader}
         ListFooterComponent={ListFooter}
@@ -605,29 +729,127 @@ export default function DeckDetailScreen() {
         initialNumToRender={12}
         maxToRenderPerBatch={8}
         windowSize={7}
+        // Track current offset in a ref. We don't need state — only nav-button
+        // handlers read this, and they read it on press, not on each frame.
+        onScroll={(e) => { currentOffsetRef.current = e.nativeEvent.contentOffset.y; }}
+        scrollEventThrottle={64}
+        // scrollToIndex can fire before the target row is virtualized; the
+        // fallback estimates an offset from averaged item lengths so the list
+        // at least lands close, after which a settle pass will land exactly.
+        onScrollToIndexFailed={(info) => {
+          const offset = info.averageItemLength * info.index;
+          listRef.current?.scrollToOffset({ offset, animated: false });
+          setTimeout(() => {
+            listRef.current?.scrollToIndex({ index: info.index, viewPosition: 0, animated: false });
+          }, 60);
+        }}
         refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor={t.textSecondary} />}
       />
 
-      {/* Floating Action Button — anchored absolute, opens AddCardsSheet. */}
+      {/* Speed-dial backdrop — only mounted while open. Tap dismisses, no
+          visual treatment so the deck stays readable behind the buttons. */}
+      {fabOpen && (
+        <Pressable
+          style={StyleSheet.absoluteFill}
+          onPress={() => setFabOpen(false)}
+          accessibilityRole="button"
+          accessibilityLabel="Close menu"
+        />
+      )}
+
+      {/* Expanded cluster: split into two anchors. Positions swapped so the
+          nav column stacks directly above the FAB and the Add-card pill sits
+          to the LEFT of the FAB at FAB level. */}
+      {fabOpen && (
+        <>
+          <View
+            style={[s.dialAddCard, { bottom: 16 + insets.bottom }]}
+            pointerEvents="box-none"
+          >
+            <DialButton t={t} label="Add card" onPress={openAdd} primary />
+          </View>
+          <View
+            style={[s.dialNavCol, { bottom: 16 + insets.bottom + 56 + 8 }]}
+            pointerEvents="box-none"
+          >
+            {/* Restore sits at the top of the column so it's visually distinct
+                from the "jump-to" entries below it. Disabled until a nav button
+                has captured a previous offset. */}
+            <DialButton t={t} label="Prev" onPress={restoreOffset} disabled={savedOffset == null} />
+            <DialButton t={t} label="Top" onPress={scrollToTop} />
+            <DialButton t={t} label="Main" onPress={() => scrollToBoard('main')} disabled={headerIndexByBoard.main == null} />
+            <DialButton t={t} label="Sideboard" onPress={() => scrollToBoard('side')} disabled={headerIndexByBoard.side == null} />
+            <DialButton t={t} label="Considering" onPress={() => scrollToBoard('considering')} disabled={headerIndexByBoard.considering == null} />
+          </View>
+        </>
+      )}
+
+      {/* Floating Action Button — toggles the speed-dial. Glyph flips to ×
+          while open so the close affordance is obvious. */}
       <Pressable
-        onPress={openAdd}
+        onPress={() => setFabOpen((v) => !v)}
         style={[s.fab, { backgroundColor: t.accent, bottom: 16 + insets.bottom }]}
         accessibilityRole="button"
-        accessibilityLabel="Add cards"
+        accessibilityLabel={fabOpen ? 'Close menu' : 'Open menu'}
+        accessibilityState={{ expanded: fabOpen }}
       >
-        <Text style={s.fabLabel}>+</Text>
+        <Text style={s.fabLabel}>{fabOpen ? '×' : '+'}</Text>
       </Pressable>
 
       {/* In-page card search + add (no nav to /search). Sheet stays open across adds. */}
       <AddCardsSheet
         visible={addOpen}
         deckId={deckId}
+        format={deck?.format ?? ''}
+        commanderColorIdentity={commanderColorIdentity}
         onClose={() => setAddOpen(false)}
         onInspect={() => { resumeAddOnFocus.current = true; }}
+      />
+      {/* Printing-picker sheet — opened from the per-card action sheet's
+          "Change printing" entry. Mounted unconditionally so the slide
+          animation runs on first show. */}
+      <ChangePrintingSheet
+        visible={printingTarget !== null}
+        card={printingTarget}
+        deckId={deckId}
+        onClose={() => setPrintingTarget(null)}
       />
       {/* Generic action sheet portal — replaces native Alert across the app. */}
       {sheet.node}
     </View>
+  );
+}
+
+// Single pill button used inside the speed-dial. `primary` paints with the
+// accent (used for "Add card" so it stands out from the nav column). Disabled
+// state dims the pill — used when a board has no header in the deck.
+function DialButton({
+  t, label, onPress, primary, disabled,
+}: {
+  t: ReturnType<typeof useTheme>;
+  label: string;
+  onPress: () => void;
+  primary?: boolean;
+  disabled?: boolean;
+}) {
+  const bg = primary ? t.accent : t.surface;
+  const fg = primary ? '#fff' : t.text;
+  return (
+    <Pressable
+      onPress={onPress}
+      disabled={disabled}
+      accessibilityRole="button"
+      accessibilityLabel={label}
+      accessibilityState={{ disabled: !!disabled }}
+      style={({ pressed }) => [
+        s.dialBtn,
+        { backgroundColor: bg, borderColor: t.border },
+        disabled && { opacity: 0.4 },
+        pressed && !disabled && { opacity: 0.7 },
+      ]}
+    >
+      <Text style={[s.dialBtnText, { color: fg }]}>{label}</Text>
+    </Pressable>
   );
 }
 
@@ -715,6 +937,19 @@ const s = StyleSheet.create({
   },
   // FAB plus icon.
   fabLabel: { color: 'white', fontSize: 28, fontWeight: '300', marginTop: -2 },
+  // Add-card pill: bottom-aligned with the FAB, sitting to the LEFT of it.
+  // Right offset clears the FAB's 56pt width plus a small gap.
+  dialAddCard: { position: 'absolute', right: 24 + 56 + 10, alignItems: 'flex-end' },
+  // Nav column: stacked directly above the FAB, right-aligned with it.
+  dialNavCol: { position: 'absolute', right: 24, alignItems: 'flex-end', gap: 8 },
+  // Pill button shared by every entry. Width is intrinsic to the label so the
+  // column auto-sizes to its widest member.
+  dialBtn: {
+    paddingHorizontal: 14, paddingVertical: 10, borderRadius: 999,
+    borderWidth: StyleSheet.hairlineWidth,
+    elevation: 4, shadowColor: '#000', shadowOpacity: 0.18, shadowRadius: 4, shadowOffset: { width: 0, height: 2 },
+  },
+  dialBtnText: { fontSize: 13, fontWeight: '700' },
   // Grid view: row of N tiles. Outer paddingHorizontal mirrors text-row inset so grid
   // and list views align horizontally; gap supplied inline (depends on screen width).
   gridRow: { flexDirection: 'row', paddingVertical: 6 },

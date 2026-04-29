@@ -11,6 +11,7 @@ export type SearchViewMode = 'list' | 'grid';
 export type SearchGridCols = 1 | 2 | 3 | 4 | 5;
 export type DeckListMode = 'banner' | 'compact';
 export type DeckViewMode = 'list' | 'grid';
+export type AddSheetCardSize = 'small' | 'medium' | 'large';
 type ThemeSlots = [CustomTheme | null, CustomTheme | null, CustomTheme | null];
 type NavDir = 'initial' | 'forward' | 'backward';
 type TrailEntry = { id: string; name: string };
@@ -52,6 +53,11 @@ type Store = {
   // back to 'list'. Persisted so the user's per-deck choice survives restarts.
   deckViewModes: Record<number, DeckViewMode>;
   setDeckViewMode: (deckId: number, mode: DeckViewMode) => void;
+
+  // Thumbnail size used in the Add-cards search sheet. Tapping the size
+  // toggle in the sheet header cycles sm → md → lg.
+  addSheetCardSize: AddSheetCardSize;
+  setAddSheetCardSize: (size: AddSheetCardSize) => void;
 
   // Card detail breadcrumb trail (in-memory)
   cardTrail: TrailEntry[];
@@ -115,6 +121,8 @@ export const useStore = create<Store>()(
       deckViewModes: {},
       setDeckViewMode: (deckId, mode) =>
         set((state) => ({ deckViewModes: { ...state.deckViewModes, [deckId]: mode } })),
+      addSheetCardSize: 'medium',
+      setAddSheetCardSize: (addSheetCardSize) => set({ addSheetCardSize }),
       theme: 'dark',
       setTheme: (theme) => set({ theme }),
       customThemes: [null, null, null],
@@ -141,6 +149,7 @@ export const useStore = create<Store>()(
         searchGridCols: state.searchGridCols,
         deckListMode: state.deckListMode,
         deckViewModes: state.deckViewModes,
+        addSheetCardSize: state.addSheetCardSize,
       }),
       merge: (persistedState, currentState) => ({
         ...currentState,

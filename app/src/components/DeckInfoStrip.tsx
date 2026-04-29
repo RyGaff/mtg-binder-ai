@@ -9,11 +9,16 @@ type Props = {
   mainCount: number;
   sideCount: number;
   totalPrice: number;
-  expanded: boolean;
+  statsExpanded: boolean;
+  historyExpanded: boolean;
   onToggleStats: () => void;
+  onToggleHistory: () => void;
 };
 
-function DeckInfoStripImpl({ format, colorIdentity, mainCount, sideCount, totalPrice, expanded, onToggleStats }: Props) {
+function DeckInfoStripImpl({
+  format, colorIdentity, mainCount, sideCount, totalPrice,
+  statsExpanded, historyExpanded, onToggleStats, onToggleHistory,
+}: Props) {
   const t = useTheme();
   return (
     <View style={[s.wrap, { borderBottomColor: t.border }]}>
@@ -35,11 +40,21 @@ function DeckInfoStripImpl({ format, colorIdentity, mainCount, sideCount, totalP
           <Text style={{ color: t.textSecondary, fontWeight: '500' }}>$</Text>{totalPrice.toFixed(2)}
         </Text>
       ) : null}
-      <Pressable onPress={onToggleStats} hitSlop={8} style={[s.toggle, expanded ? { backgroundColor: t.accent + '33' } : { backgroundColor: t.surfaceAlt }]}>
-        <Text style={[s.toggleText, { color: expanded ? t.accent : t.textSecondary }]}>
-          Stats {expanded ? '▴' : '▾'}
-        </Text>
-      </Pressable>
+      {/* Toggle pair pinned to the right edge — Stats first, History adjacent.
+          Only one panel renders at a time; toggling either is the responsibility
+          of the parent screen (see deck/[id].tsx). */}
+      <View style={s.toggleGroup}>
+        <Pressable onPress={onToggleStats} hitSlop={8} style={[s.toggle, statsExpanded ? { backgroundColor: t.accent + '33' } : { backgroundColor: t.surfaceAlt }]}>
+          <Text style={[s.toggleText, { color: statsExpanded ? t.accent : t.textSecondary }]}>
+            Stats {statsExpanded ? '▴' : '▾'}
+          </Text>
+        </Pressable>
+        <Pressable onPress={onToggleHistory} hitSlop={8} style={[s.toggle, historyExpanded ? { backgroundColor: t.accent + '33' } : { backgroundColor: t.surfaceAlt }]}>
+          <Text style={[s.toggleText, { color: historyExpanded ? t.accent : t.textSecondary }]}>
+            History {historyExpanded ? '▴' : '▾'}
+          </Text>
+        </Pressable>
+      </View>
     </View>
   );
 }
@@ -53,6 +68,7 @@ const s = StyleSheet.create({
   glyphs: { flexDirection: 'row', alignItems: 'center', gap: 2 },
   count: { fontSize: 13 },
   price: { fontSize: 13, fontWeight: '700' },
-  toggle: { marginLeft: 'auto', paddingHorizontal: 14, paddingVertical: 8, borderRadius: 999 },
+  toggleGroup: { marginLeft: 'auto', flexDirection: 'row', alignItems: 'center', gap: 6 },
+  toggle: { paddingHorizontal: 14, paddingVertical: 8, borderRadius: 999 },
   toggleText: { fontSize: 12, fontWeight: '600' },
 });

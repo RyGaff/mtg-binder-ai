@@ -192,24 +192,12 @@ export async function fetchCardBySetNumber(setCode: string, collectorNumber: str
 }
 
 export async function fetchCardByName(name: string, signal?: AbortSignal): Promise<CachedCard> {
-  const attempts: (() => Promise<ScryfallCard>)[] = [
-    () => get<ScryfallCard>(`${BASE}/cards/named?exact=${encodeURIComponent(name)}`, signal),
-    () => get<ScryfallCard>(`${BASE}/cards/named?fuzzy=${encodeURIComponent(name)}`, signal),
-  ];
-  const front = name.split(/\s*\/\/\s*/)[0];
-  if (front && front !== name) {
-    attempts.push(() => get<ScryfallCard>(`${BASE}/cards/named?fuzzy=${encodeURIComponent(front)}`, signal));
-  }
-
-  let lastErr: unknown;
-  for (const run of attempts) {
-    try {
-      return normalizeScryfallCard(await run());
-    } catch (err) {
-      lastErr = err;
-    }
-  }
-  throw lastErr ?? new Error(`Could not resolve card: ${name}`);
+  // Always query the front face only. Multi-face names ("A // B") are split
+  // on `//`; single-face names pass through unchanged. Fuzzy match is forgiving
+  // of casing/punctuation drift in user-pasted decklists.
+  const front = name.split(/\s*\/\/\s*/)[0].trim();
+  const card = await get<ScryfallCard>(`${BASE}/cards/named?fuzzy=${encodeURIComponent(front)}`, signal);
+  return normalizeScryfallCard(card);
 }
 
 export type SearchResult = { data: ScryfallCard[]; has_more: boolean; next_page?: string };

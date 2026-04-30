@@ -1,5 +1,6 @@
 import { useState } from 'react';
 import { ActivityIndicator, FlatList, Modal, Pressable, StyleSheet, Text, View } from 'react-native';
+import { Skeleton } from './Skeleton';
 import { Image } from 'expo-image';
 import { useQueryClient } from '@tanstack/react-query';
 import { usePrintings } from '../api/hooks';
@@ -59,7 +60,19 @@ export function ChangePrintingSheet({ visible, card, deckId, onClose }: Props) {
           <Text style={[s.title, { color: t.text }]}>Change printing</Text>
           <Text style={[s.subtitle, { color: t.textSecondary }]} numberOfLines={1}>{card.name}</Text>
           {isLoading ? (
-            <ActivityIndicator color={t.accent} style={s.loader} />
+            // Skeleton rows match the printing-row shape so the sheet's
+            // height stabilizes immediately on open.
+            <View style={s.list}>
+              {Array.from({ length: 5 }).map((_, i) => (
+                <View key={i} style={[s.row, { borderBottomColor: t.border }]}>
+                  <Skeleton width={44} height={62} radius={4} />
+                  <View style={[s.info, { gap: 6 }]}>
+                    <Skeleton height={11} width="55%" />
+                    <Skeleton height={11} width="35%" />
+                  </View>
+                </View>
+              ))}
+            </View>
           ) : isError || printings.length === 0 ? (
             <Text style={[s.empty, { color: t.textSecondary }]}>No printings found.</Text>
           ) : (

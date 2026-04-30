@@ -1,4 +1,5 @@
-import { View, Text, Pressable, ActivityIndicator, StyleSheet } from 'react-native';
+import { View, Text, Pressable, StyleSheet } from 'react-native';
+import { Skeleton } from './Skeleton';
 import { useRouter } from 'expo-router';
 import { usePrintings } from '../api/hooks';
 import { useStore } from '../store/useStore';
@@ -26,7 +27,19 @@ export function AdditionalPrints({ card }: Props) {
     <View style={[styles.container, { backgroundColor: theme.surface }]}>
       <Text style={[styles.heading, { color: theme.accent }]}>Printings</Text>
       {isLoading ? (
-        <ActivityIndicator color={theme.accent} style={styles.loader} />
+        // Skeleton rows match PrintingRow shape (44×62 thumb + 2-line meta)
+        // so the printings card doesn't grow once real data lands.
+        <View>
+          {Array.from({ length: 4 }).map((_, i) => (
+            <View key={i} style={styles.row}>
+              <Skeleton width={44} height={62} radius={4} />
+              <View style={[styles.rowInfo, { gap: 6 }]}>
+                <Skeleton height={12} width="60%" />
+                <Skeleton height={11} width="40%" />
+              </View>
+            </View>
+          ))}
+        </View>
       ) : isError ? (
         <Text style={[styles.empty, { color: theme.textSecondary }]}>Could not load printings</Text>
       ) : (

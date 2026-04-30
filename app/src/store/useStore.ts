@@ -11,6 +11,7 @@ export type SearchViewMode = 'list' | 'grid';
 export type SearchGridCols = 1 | 2 | 3 | 4 | 5;
 export type DeckListMode = 'banner' | 'compact';
 export type DeckViewMode = 'list' | 'grid';
+export type DeckSortMode = 'type' | 'name' | 'mana' | 'color' | 'price';
 export type AddSheetCardSize = 'small' | 'medium' | 'large';
 type ThemeSlots = [CustomTheme | null, CustomTheme | null, CustomTheme | null];
 type NavDir = 'initial' | 'forward' | 'backward';
@@ -53,6 +54,18 @@ type Store = {
   // back to 'list'. Persisted so the user's per-deck choice survives restarts.
   deckViewModes: Record<number, DeckViewMode>;
   setDeckViewMode: (deckId: number, mode: DeckViewMode) => void;
+
+  // Per-deck sort order for the deck-detail card list. Default 'type' keeps
+  // the historical type-grouped layout (Creatures / Lands / etc inside Main).
+  // 'name' / 'mana' / 'color' / 'price' flatten each board into a single
+  // sorted list.
+  deckSortModes: Record<number, DeckSortMode>;
+  setDeckSortMode: (deckId: number, mode: DeckSortMode) => void;
+
+  // Per-deck sort direction. Default 'asc'. Flipped by a small toggle on the
+  // info strip; comparator output is negated when 'desc'.
+  deckSortDirs: Record<number, 'asc' | 'desc'>;
+  setDeckSortDir: (deckId: number, dir: 'asc' | 'desc') => void;
 
   // Thumbnail size used in the Add-cards search sheet. Tapping the size
   // toggle in the sheet header cycles sm → md → lg.
@@ -121,6 +134,12 @@ export const useStore = create<Store>()(
       deckViewModes: {},
       setDeckViewMode: (deckId, mode) =>
         set((state) => ({ deckViewModes: { ...state.deckViewModes, [deckId]: mode } })),
+      deckSortModes: {},
+      setDeckSortMode: (deckId, mode) =>
+        set((state) => ({ deckSortModes: { ...state.deckSortModes, [deckId]: mode } })),
+      deckSortDirs: {},
+      setDeckSortDir: (deckId, dir) =>
+        set((state) => ({ deckSortDirs: { ...state.deckSortDirs, [deckId]: dir } })),
       addSheetCardSize: 'medium',
       setAddSheetCardSize: (addSheetCardSize) => set({ addSheetCardSize }),
       theme: 'dark',
@@ -149,6 +168,8 @@ export const useStore = create<Store>()(
         searchGridCols: state.searchGridCols,
         deckListMode: state.deckListMode,
         deckViewModes: state.deckViewModes,
+        deckSortModes: state.deckSortModes,
+        deckSortDirs: state.deckSortDirs,
         addSheetCardSize: state.addSheetCardSize,
       }),
       merge: (persistedState, currentState) => ({

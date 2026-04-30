@@ -186,9 +186,30 @@ export async function resolveDeckCards(
     }
   }
 
+  // Fallback pass for anything `/cards/collection` couldn't match — almost
+  // always multi-face cards where the user wrote one face name (e.g.
+  // "Fable of the Mirror-Breaker" or "Bruna") but Scryfall only matches the
+  // full "A // B" string in the bulk endpoint. fetchCardByName tries exact,
+  // then fuzzy, then fuzzy on the front face, so it resolves face-name
+  // imports correctly. We register both the input lowercased name and the
+  // canonical card name so downstream lookups by either form succeed.
   const unresolved: string[] = [];
   for (const lower of inputByLower.keys()) {
-    if (!resolved.has(lower)) unresolved.push(lower);
+    if (resolved.has(lower)) continue;
+    if (signal?.aborted) {
+      if (signal.reason instanceof Error) throw signal.reason;
+      const e = new Error('Aborted');
+      e.name = 'AbortError';
+      throw e;
+    }
+    const original = inputByLower.get(lower)!;
+    try {
+      const card = await fetchCardByName(original, signal);
+      resolved.set(lower, card);
+      resolved.set(card.name.toLowerCase(), card);
+    } catch {
+      unresolved.push(lower);
+    }
   }
 
   return { resolved, unresolved };

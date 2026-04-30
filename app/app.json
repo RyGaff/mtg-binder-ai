@@ -4,8 +4,10 @@
     "slug": "mtg-binder-ai",
     "version": "1.0.0",
     "scheme": "mtgbinder",
+    "icon": "./assets/LF_logo.png",
     "web": {
-      "bundler": "metro"
+      "bundler": "metro",
+      "favicon": "./assets/LF_logo.png"
     },
     "plugins": [
       "expo-router",
@@ -22,7 +24,8 @@
     ],
     "android": {
       "adaptiveIcon": {
-        "backgroundColor": "#1a1a2e"
+        "foregroundImage": "./assets/LF_logo.png",
+        "backgroundColor": "#2a2a2e"
       },
       "permissions": [
         "android.permission.CAMERA",

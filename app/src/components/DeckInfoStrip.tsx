@@ -11,13 +11,22 @@ type Props = {
   totalPrice: number;
   statsExpanded: boolean;
   historyExpanded: boolean;
+  /** Active sort mode label shown next to the Sort toggle (e.g. "Mana"). */
+  sortLabel: string;
+  /** Active sort direction — drives the arrow shown on the Sort toggle. */
+  sortDir: 'asc' | 'desc';
+  /** Whether the Sort panel is currently expanded. Mutually exclusive with
+      Stats and History (parent enforces the exclusion). */
+  sortExpanded: boolean;
   onToggleStats: () => void;
   onToggleHistory: () => void;
+  onToggleSort: () => void;
 };
 
 function DeckInfoStripImpl({
   format, colorIdentity, mainCount, sideCount, totalPrice,
-  statsExpanded, historyExpanded, onToggleStats, onToggleHistory,
+  statsExpanded, historyExpanded, sortLabel, sortDir, sortExpanded,
+  onToggleStats, onToggleHistory, onToggleSort,
 }: Props) {
   const t = useTheme();
   return (
@@ -40,10 +49,17 @@ function DeckInfoStripImpl({
           <Text style={{ color: t.textSecondary, fontWeight: '500' }}>$</Text>{totalPrice.toFixed(2)}
         </Text>
       ) : null}
-      {/* Toggle pair pinned to the right edge — Stats first, History adjacent.
-          Only one panel renders at a time; toggling either is the responsibility
-          of the parent screen (see deck/[id].tsx). */}
+      {/* Toggle group pinned to the right edge. All three behave the same
+          way now — they expand/collapse an inline panel below the strip.
+          The parent screen enforces mutual exclusion so only one panel
+          renders at a time. The Sort toggle's label echoes the active mode
+          + direction so the user can read current state without opening it. */}
       <View style={s.toggleGroup}>
+        <Pressable onPress={onToggleSort} hitSlop={8} style={[s.toggle, sortExpanded ? { backgroundColor: t.accent + '33' } : { backgroundColor: t.surfaceAlt }]}>
+          <Text style={[s.toggleText, { color: sortExpanded ? t.accent : t.textSecondary }]}>
+            Sort: {sortLabel} {sortDir === 'asc' ? '↑' : '↓'} {sortExpanded ? '▴' : '▾'}
+          </Text>
+        </Pressable>
         <Pressable onPress={onToggleStats} hitSlop={8} style={[s.toggle, statsExpanded ? { backgroundColor: t.accent + '33' } : { backgroundColor: t.surfaceAlt }]}>
           <Text style={[s.toggleText, { color: statsExpanded ? t.accent : t.textSecondary }]}>
             Stats {statsExpanded ? '▴' : '▾'}

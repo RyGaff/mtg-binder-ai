@@ -1,4 +1,5 @@
 import { View, Text, ScrollView, TouchableOpacity, ActivityIndicator, Linking, StyleSheet } from 'react-native';
+import { Skeleton } from './Skeleton';
 import { useRouter } from 'expo-router';
 import { useSynergyFromCard } from '../api/hooks';
 import { useStore } from '../store/useStore';
@@ -42,7 +43,19 @@ export function Synergy({ card }: Props) {
 
   function renderBody() {
     if (isLoading || (retrying && entries.length === 0)) {
-      return <ActivityIndicator color={theme.accent} style={styles.loader} />;
+      // Match the tile dims defined in styles.cardItem / cardImage (100×140)
+      // so the synergy section reserves its full height up-front.
+      return (
+        <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.strip}>
+          {Array.from({ length: 5 }).map((_, i) => (
+            <View key={i} style={styles.cardItem}>
+              <Skeleton width={100} height={140} radius={6} />
+              <View style={{ height: 4 }} />
+              <Skeleton width={80} height={10} />
+            </View>
+          ))}
+        </ScrollView>
+      );
     }
     if (isError && entries.length === 0) {
       return (

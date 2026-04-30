@@ -1,4 +1,5 @@
 import { View, Text, ScrollView, TouchableOpacity, ActivityIndicator, StyleSheet, useWindowDimensions } from 'react-native';
+import { Skeleton } from './Skeleton';
 import { useRouter } from 'expo-router';
 import { useCallback, useMemo } from 'react';
 import { useSimilarSearch } from '../api/hooks';
@@ -36,7 +37,22 @@ export function FindSimilar({ card }: Props) {
         </View>
       );
     }
-    if (isLoading) return <ActivityIndicator color={theme.accent} style={styles.loader} />;
+    if (isLoading) {
+      // Horizontal strip of skeleton tiles sized to the same tileSize so the
+      // section's height matches its eventual content — no jump when results
+      // arrive.
+      return (
+        <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.strip}>
+          {Array.from({ length: 5 }).map((_, i) => (
+            <View key={i} style={[styles.cardItem, { width: tileSize.width }]}>
+              <Skeleton width={tileSize.width} height={tileSize.imageHeight} radius={6} />
+              <View style={{ height: 4 }} />
+              <Skeleton width={tileSize.width * 0.8} height={10} />
+            </View>
+          ))}
+        </ScrollView>
+      );
+    }
     if (isError) return <Text style={[styles.empty, { color: theme.textSecondary }]}>Could not load similar cards</Text>;
     if (similar.length === 0) return <Text style={[styles.empty, { color: theme.textSecondary }]}>No similar cards found</Text>;
 
@@ -62,7 +78,6 @@ export function FindSimilar({ card }: Props) {
               <View style={[styles.cardImage, imgStyle, { backgroundColor: theme.surfaceAlt }]} />
             )}
             <Text style={[styles.cardName, { color: theme.text, width: tileSize.width }]} numberOfLines={1} ellipsizeMode="tail">{c.name}</Text>
-            <Text style={[styles.cardMana, { color: theme.textSecondary }]} numberOfLines={1}>{c.mana_cost}</Text>
           </TouchableOpacity>
         ))}
       </ScrollView>
@@ -87,6 +102,5 @@ const styles = StyleSheet.create({
   cardItem: { alignItems: 'center' },
   cardImage: { borderRadius: radius.sm + 2 },
   cardName: { fontSize: 10, fontWeight: '600', marginTop: spacing.xs, textAlign: 'center' },
-  cardMana: { fontSize: 10, marginTop: 1, textAlign: 'center' },
   empty: { fontSize: font.small },
 });

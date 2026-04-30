@@ -3,12 +3,12 @@ import {
   TextInput,
   FlatList,
   Text,
-  ActivityIndicator,
   StyleSheet,
   Platform,
   useWindowDimensions,
   type ListRenderItem,
 } from 'react-native';
+import { Skeleton } from '../../src/components/Skeleton';
 import { useCallback, useMemo, useState } from 'react';
 import { CardRow } from '../../src/components/CardRow';
 import { CardTile } from '../../src/components/CardTile';
@@ -75,7 +75,36 @@ export default function SearchScreen() {
         />
       </View>
 
-      {isLoading && <ActivityIndicator style={styles.loader} color={theme.accent} />}
+      {isLoading && (
+        // Skeleton placeholders matching the active view's row/tile size.
+        // Reserves the eventual content height so results don't push the
+        // first row down on arrival.
+        isGrid ? (
+          <View style={[styles.list, styles.skelGrid]}>
+            {Array.from({ length: gridCols * 2 }).map((_, i) => (
+              <Skeleton
+                key={i}
+                width={(screenWidth - LIST_PADDING * 2) / gridCols - 4}
+                height={((screenWidth - LIST_PADDING * 2) / gridCols - 4) * 1.4}
+                radius={6}
+                style={{ margin: 2 }}
+              />
+            ))}
+          </View>
+        ) : (
+          <View style={styles.list}>
+            {Array.from({ length: 6 }).map((_, i) => (
+              <View key={i} style={styles.skelRow}>
+                <Skeleton width={48} height={68} radius={4} />
+                <View style={{ flex: 1, marginLeft: 12, gap: 6 }}>
+                  <Skeleton height={14} width="65%" />
+                  <Skeleton height={11} width="40%" />
+                </View>
+              </View>
+            ))}
+          </View>
+        )
+      )}
 
       <FlatList
         key={isGrid ? `grid-${gridCols}` : 'list'}
@@ -101,8 +130,9 @@ const styles = StyleSheet.create({
   screen: { flex: 1 },
   inputRow: { padding: 12 },
   input: { borderRadius: 8, padding: 12, fontSize: 14 },
-  loader: { marginTop: 20 },
   list: { padding: 8 },
+  skelGrid: { flexDirection: 'row', flexWrap: 'wrap' },
+  skelRow: { flexDirection: 'row', alignItems: 'center', paddingVertical: 8 },
   rowLeft: { justifyContent: 'flex-start' },
   empty: { textAlign: 'center', marginTop: 40 },
 });

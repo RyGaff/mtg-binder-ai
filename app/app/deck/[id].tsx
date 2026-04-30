@@ -1,7 +1,7 @@
-import { ActivityIndicator, FlatList, Pressable, RefreshControl, StyleSheet, Text, TouchableOpacity, useWindowDimensions, View } from 'react-native';
+import { FlatList, Pressable, RefreshControl, StyleSheet, Text, TouchableOpacity, useWindowDimensions, View } from 'react-native';
 import { Image } from 'expo-image';
 import { useFocusEffect, useLocalSearchParams, useRouter } from 'expo-router';
-import { useCallback, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import * as Sharing from 'expo-sharing';
@@ -21,9 +21,11 @@ import { DeckHero } from '../../src/components/DeckHero';
 import { DeckInfoStrip } from '../../src/components/DeckInfoStrip';
 import { DeckStatsPanel } from '../../src/components/DeckStatsPanel';
 import { DeckHistoryPanel } from '../../src/components/DeckHistoryPanel';
+import { DeckSortPanel } from '../../src/components/DeckSortPanel';
+import { Skeleton } from '../../src/components/Skeleton';
 import { ManaCost } from '../../src/components/ManaCost';
 import { boardPrice, cardPriceUsd } from '../../src/utils/deckStats';
-import { buildSections, type RowSection } from '../../src/utils/deckSections';
+import { buildSections, type RowSection, type SortMode } from '../../src/utils/deckSections';
 
 export default function DeckDetailScreen() {
   const t = useTheme();
@@ -36,6 +38,10 @@ export default function DeckDetailScreen() {
   // a UI preference, not a property of the deck, so it never touches the DB.
   const viewMode = useStore((s) => s.deckViewModes[deckId] ?? 'list');
   const setDeckViewMode = useStore((s) => s.setDeckViewMode);
+  const sortMode = useStore((s) => s.deckSortModes[deckId] ?? 'type');
+  const setDeckSortMode = useStore((s) => s.setDeckSortMode);
+  const sortDir = useStore((s) => s.deckSortDirs[deckId] ?? 'asc');
+  const setDeckSortDir = useStore((s) => s.setDeckSortDir);
   const insets = useSafeAreaInsets();
 
   // Deck row + its cards. TanStack Query keeps both fresh across navigations.
@@ -55,6 +61,7 @@ export default function DeckDetailScreen() {
   // the page doesn't grow two large stacked panels.
   const [statsOpen, setStatsOpen] = useState(false);
   const [historyOpen, setHistoryOpen] = useState(false);
+  const [sortOpen, setSortOpen] = useState(false);
   // Card whose printing the user is currently swapping. Non-null = sheet visible.
   const [printingTarget, setPrintingTarget] = useState<DeckCard | null>(null);
   // Speed-dial open state. When true the FAB cluster expands: an "Add card"
@@ -91,7 +98,7 @@ export default function DeckDetailScreen() {
   const tileHeight = Math.round(tileWidth * 7 / 5);
 
   // Derived view-model values, all memoized on `cards`.
-  const sections = useMemo(() => buildSections(cards), [cards]);
+  const sections = useMemo(() => buildSections(cards, sortMode, sortDir), [cards, sortMode, sortDir]);
   const mainCount = useMemo(() => cards.filter((c) => c.board === 'main').reduce((s, c) => s + c.quantity, 0), [cards]);
   const sideCount = useMemo(() => cards.filter((c) => c.board === 'side').reduce((s, c) => s + c.quantity, 0), [cards]);
   const totalPrice = useMemo(() => boardPrice(cards), [cards]);
@@ -112,9 +119,13 @@ export default function DeckDetailScreen() {
   const commanderCards = useMemo(() => cards.filter((c) => c.board === 'commander'), [cards]);
   const sideCards = useMemo(() => cards.filter((c) => c.board === 'side'), [cards]);
   // Commander color identity — merged across all cards on the commander board
-  // (covers partner/background pairs). Lowercased + ordered WUBRG; empty CI
-  // collapses to 'c' so Scryfall's `commander:c` returns colorless legals.
-  const commanderColorIdentity = useMemo(() => {
+  // (covers partner/background pairs). Returns undefined when the board is
+  // empty so AddCardsSheet drops the `commander:<ci>` filter and falls back
+  // to plain `legal:commander`. With at least one commander present, an
+  // all-colorless identity still resolves to 'c' (so e.g. a Karn deck filters
+  // to `commander:c`).
+  const commanderColorIdentity = useMemo<string | undefined>(() => {
+    if (commanderCards.length === 0) return undefined;
     const set = new Set<string>();
     for (const c of commanderCards) {
       try {
@@ -225,7 +236,19 @@ export default function DeckDetailScreen() {
         actions: [
           { label: 'Delete', destructive: true, onPress: () => {
             deleteDeck(deckId);
+            // Purge cached data for the deleted deck so the screen can't keep
+            // rendering a stale row, and so a re-navigate to the dead route
+            // hits the deckMissing branch immediately.
+            qc.removeQueries({ queryKey: ['deck', deckId] });
+            qc.removeQueries({ queryKey: ['deck-cards', deckId] });
+            qc.removeQueries({ queryKey: ['deck-history', deckId] });
             qc.invalidateQueries({ queryKey: ['decks'] });
+            // Clear the active deck pointer if it referenced this one — keeps
+            // /card/[id]'s "Add to active deck" from sending writes to a
+            // ghost id and the deck index from preselecting nothing.
+            if (useStore.getState().activeDeckId === deckId) {
+              setActiveDeckId(null);
+            }
             router.back();
           } },
         ],
@@ -282,6 +305,17 @@ export default function DeckDetailScreen() {
       }
     }, [])
   );
+
+  // If the deck row resolves to null (deleted from underneath us, or a stale
+  // cached route), bounce back to the previous screen on next render. The
+  // explicit deckMissing branch below still renders a fallback for the brief
+  // window before the redirect commits.
+  useEffect(() => {
+    if (deckMissing) {
+      if (router.canGoBack()) router.back();
+      else router.replace('/decks');
+    }
+  }, [deckMissing, router]);
 
   // Section header — bold for boards (Commander/Main/Sideboard), small caps for type sub-sections.
   // Returns plain JSX (not a FlatList row renderer) so we can compose it inside the flattened
@@ -356,9 +390,9 @@ export default function DeckDetailScreen() {
           <Text style={[s.rowMenuIcon, { color: t.textSecondary }]}>⋮</Text>
         </TouchableOpacity>
         <TouchableOpacity
-          onPress={() => router.push(`/card/${item.scryfall_id}`)}
-          onLongPress={() => cardOptions(item)}
-          delayLongPress={400}
+          onPress={() => cardOptions(item)}
+          onLongPress={() => router.push(`/card/${item.scryfall_id}`)}
+          delayLongPress={350}
           style={s.rowMain}
         >
           <ManaCost cost={item.mana_cost} size={12} />
@@ -406,19 +440,27 @@ export default function DeckDetailScreen() {
     if (!thumb) return renderTextRow(item);
     return (
       <View style={s.commanderWrap}>
-        {/* pointerEvents="none" wrapper keeps the image area as a bare scroll surface
-            — vertical pans pass through to the FlatList responder. */}
-        <View pointerEvents="none">
+        {/* Image is a Pressable so tap/long-press on the card art behave the
+            same as the label below it. Vertical pans on the tile still hand
+            scroll to the FlatList — Pressable doesn't capture movement past
+            its press slop, so a real swipe takes responder. */}
+        <Pressable
+          onPress={() => cardOptions(item)}
+          onLongPress={() => router.push(`/card/${item.scryfall_id}`)}
+          delayLongPress={350}
+          style={({ pressed }) => [pressed && { opacity: 0.6 }]}
+          accessibilityLabel={`${item.name}. Tap for options, long press to inspect.`}
+        >
           <Image source={thumb} style={s.commanderThumb} contentFit="cover" cachePolicy="memory-disk" recyclingKey={thumb} />
-        </View>
+        </Pressable>
         {/* Label row sits beneath the image: name+mana label Pressable on the left,
             ⋮ menu button inline on the right — same plain-text treatment as the text-row
             ⋮ button so all card menus share one visual language. */}
         <View style={s.commanderLabelRow}>
           <Pressable
-            onPress={() => router.push(`/card/${item.scryfall_id}`)}
-            onLongPress={() => cardOptions(item)}
-            delayLongPress={250}
+            onPress={() => cardOptions(item)}
+            onLongPress={() => router.push(`/card/${item.scryfall_id}`)}
+            delayLongPress={350}
             style={({ pressed }) => [s.commanderLabel, pressed && { opacity: 0.4 }]}
           >
             <Text style={[s.commanderName, { color: t.text }]} numberOfLines={2}>{item.name}</Text>
@@ -460,9 +502,9 @@ export default function DeckDetailScreen() {
     return (
       <View style={{ width: tileWidth }}>
         <Pressable
-          onPress={() => router.push(`/card/${item.scryfall_id}`)}
-          onLongPress={() => cardOptions(item)}
-          delayLongPress={250}
+          onPress={() => cardOptions(item)}
+          onLongPress={() => router.push(`/card/${item.scryfall_id}`)}
+          delayLongPress={350}
           style={({ pressed }) => [pressed && { opacity: 0.6 }]}
         >
           {thumb ? (
@@ -666,6 +708,15 @@ export default function DeckDetailScreen() {
     />
   ), [deck?.name, deck?.art_crop_uri, router, more]);
 
+  // Sort label echoed on the toggle so the user reads current state without
+  // opening the panel.
+  const SORT_LABEL: Record<SortMode, string> = {
+    type: 'Type', name: 'Name', mana: 'Mana', color: 'Color', price: 'Price',
+  };
+  const toggleSortDir = useCallback(() => {
+    setDeckSortDir(deckId, sortDir === 'asc' ? 'desc' : 'asc');
+  }, [deckId, sortDir, setDeckSortDir]);
+
   const renderInfoStrip = useCallback(() => (
     <DeckInfoStrip
       format={deck?.format ?? ''}
@@ -675,10 +726,15 @@ export default function DeckDetailScreen() {
       totalPrice={totalPrice}
       statsExpanded={statsOpen}
       historyExpanded={historyOpen}
-      onToggleStats={() => { setStatsOpen((v) => !v); setHistoryOpen(false); }}
-      onToggleHistory={() => { setHistoryOpen((v) => !v); setStatsOpen(false); }}
+      sortExpanded={sortOpen}
+      sortLabel={SORT_LABEL[sortMode]}
+      sortDir={sortDir}
+      onToggleStats={() => { setStatsOpen((v) => !v); setHistoryOpen(false); setSortOpen(false); }}
+      onToggleHistory={() => { setHistoryOpen((v) => !v); setStatsOpen(false); setSortOpen(false); }}
+      onToggleSort={() => { setSortOpen((v) => !v); setStatsOpen(false); setHistoryOpen(false); }}
     />
-  ), [deck?.format, colorIdentity, mainCount, sideCount, totalPrice, statsOpen, historyOpen]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  ), [deck?.format, colorIdentity, mainCount, sideCount, totalPrice, statsOpen, historyOpen, sortOpen, sortMode, sortDir]);
 
   const renderStatsPanel = useCallback(() => (
     statsOpen ? <DeckStatsPanel main={mainCards} commander={commanderCards} side={sideCards} format={deck?.format ?? ''} /> : null
@@ -688,6 +744,17 @@ export default function DeckDetailScreen() {
     historyOpen ? <DeckHistoryPanel deckId={deckId} /> : null
   ), [historyOpen, deckId]);
 
+  const renderSortPanel = useCallback(() => (
+    sortOpen ? (
+      <DeckSortPanel
+        mode={sortMode}
+        dir={sortDir}
+        onSelectMode={(m) => setDeckSortMode(deckId, m)}
+        onToggleDir={toggleSortDir}
+      />
+    ) : null
+  ), [sortOpen, sortMode, sortDir, deckId, setDeckSortMode, toggleSortDir]);
+
   // Composed list header — hero + info strip + at most one expanded panel.
   const ListHeader = (
     <>
@@ -695,14 +762,49 @@ export default function DeckDetailScreen() {
       {renderInfoStrip()}
       {renderStatsPanel()}
       {renderHistoryPanel()}
+      {renderSortPanel()}
     </>
   );
 
-  // Footer slot doubles as the loading spinner / empty-state holder so it sits below
-  // the last section row but above the FAB. Gated on !isLoading to avoid empty flash.
+  // Footer slot doubles as the loading skeleton / empty-state holder so it
+  // sits below the last section row but above the FAB. Gated on !isLoading
+  // to avoid empty flash. Skeleton shape mirrors the active view mode so the
+  // page doesn't reflow when real cards land.
   const ListFooter = isLoading ? (
     <View style={s.loadingWrap}>
-      <ActivityIndicator color={t.textSecondary} />
+      {viewMode === 'grid' ? (
+        // Grid skeleton: a couple of rows of placeholder tiles using the
+        // same column count + dimensions as renderGridTile.
+        Array.from({ length: 2 }).map((_, ri) => (
+          <View key={ri} style={[s.gridRow, { paddingHorizontal: GRID_PADDING, gap: GRID_GAP }]}>
+            {Array.from({ length: gridCols }).map((__, ci) => (
+              <View key={ci} style={{ width: tileWidth }}>
+                <Skeleton width={tileWidth} height={tileHeight} radius={6} />
+                <View style={{ height: 6 }} />
+                <Skeleton height={11} width="80%" />
+              </View>
+            ))}
+          </View>
+        ))
+      ) : (
+        // List skeleton: rows shaped like renderTextRow — left ⋮ slot, mana
+        // + name placeholder, right stepper region.
+        Array.from({ length: 6 }).map((_, i) => (
+          <View key={i} style={[s.row, { borderBottomColor: t.border }]}>
+            <View style={s.rowMenu}><Skeleton width={4} height={14} /></View>
+            <View style={[s.rowMain, { gap: 10 }]}>
+              <Skeleton width={36} height={12} />
+              <Skeleton height={12} style={{ flex: 1 }} />
+              <Skeleton width={42} height={11} />
+            </View>
+            <View style={s.stepper}>
+              <Skeleton width={24} height={24} radius={6} />
+              <Skeleton width={18} height={12} />
+              <Skeleton width={24} height={24} radius={6} />
+            </View>
+          </View>
+        ))
+      )}
     </View>
   ) : sections.length === 0 ? (
     <View style={s.emptyWrap}>

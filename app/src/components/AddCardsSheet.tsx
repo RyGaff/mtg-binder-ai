@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import {
-  ActivityIndicator, FlatList, KeyboardAvoidingView, Modal, Platform,
+  FlatList, KeyboardAvoidingView, Modal, Platform,
   Pressable, StyleSheet, Text, TextInput, TouchableOpacity, View,
 } from 'react-native';
 import { Image } from 'expo-image';
@@ -12,6 +12,7 @@ import { upsertCard, type CachedCard } from '../db/cards';
 import { searchScryfall } from '../api/scryfall';
 import { useKeyboardAppearance, useTheme } from '../theme/useTheme';
 import { useStore, type AddSheetCardSize } from '../store/useStore';
+import { Skeleton } from './Skeleton';
 import { ManaCost } from './ManaCost';
 
 const BOARDS: { key: Board; label: string }[] = [
@@ -362,7 +363,24 @@ export function AddCardsSheet({ visible, deckId, format, commanderColorIdentity,
             {/* Result body */}
             <View style={s.resultsBody}>
               {loading ? (
-                <ActivityIndicator color={t.accent} style={{ paddingVertical: 24 }} />
+                // Skeleton rows mirror the final result-row shape (thumb,
+                // name, mana/type, oracle snippet) so the list doesn't jump
+                // when results land. Count is intentionally below the screen
+                // so it never crowds; result list will scroll as needed.
+                <View style={{ paddingTop: 4 }}>
+                  {Array.from({ length: 6 }).map((_, i) => (
+                    <View key={i} style={s.resultRow}>
+                      <View style={s.resultMain}>
+                        <Skeleton width={thumbDim.w} height={thumbDim.h} radius={4} />
+                        <View style={[s.resultMeta, { gap: 6 }]}>
+                          <Skeleton height={14} width="70%" />
+                          <Skeleton height={11} width="50%" />
+                          <Skeleton height={11} width="90%" />
+                        </View>
+                      </View>
+                    </View>
+                  ))}
+                </View>
               ) : query.trim().length < 2 ? (
                 <Text style={[s.hint, { color: t.textSecondary }]}>Type 2+ characters to search.</Text>
               ) : results.length === 0 ? (

@@ -63,6 +63,17 @@ export function isPrintingsStale(cachedAt: number): boolean {
   return Date.now() - cachedAt > PRINTINGS_STALE_MS;
 }
 
+const PRUNE_AGE_MS = 24 * 60 * 60 * 1000;
+
+/** Drop printing rows older than 24 hours. Per-name refresh already deletes
+ *  before reinsert, but the set of names is otherwise unbounded — a user who
+ *  views 5k unique cards leaves all 5k name buckets behind forever. */
+export function pruneStalePrintings(): number {
+  const cutoff = Date.now() - PRUNE_AGE_MS;
+  const result = getDb().runSync('DELETE FROM printings WHERE cached_at < ?', [cutoff]);
+  return result.changes;
+}
+
 export function upsertPrintings(cardName: string, printings: PrintingSummary[]): void {
   if (printings.length === 0) return;
   const db = getDb();

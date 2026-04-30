@@ -42,11 +42,21 @@ const SKIP_TOKENS = new Set([
   'MEE', 'LLC', 'INC', 'LTD', 'ALL', 'TM',
 ]);
 
-async function resolveToFileUri(uri: string): Promise<string> {
-  if (uri.startsWith('file://') || uri.startsWith('/')) return uri;
+function safeDelete(uri: string): void {
+  try {
+    new File(uri).delete();
+  } catch {
+    // best-effort; OS will purge cache eventually
+  }
+}
+
+/** Returns a file:// URI usable by the OCR native module, plus a flag
+ *  indicating whether we copied the source (so the caller can clean up). */
+async function resolveToFileUri(uri: string): Promise<{ uri: string; copied: boolean }> {
+  if (uri.startsWith('file://') || uri.startsWith('/')) return { uri, copied: false };
   const dest = new File(Paths.cache, `scan_ocr_${Date.now()}.jpg`);
   new File(uri).copy(dest);
-  return dest.uri;
+  return { uri: dest.uri, copied: true };
 }
 
 async function runOcr(uri: string): Promise<string> {
@@ -54,8 +64,13 @@ async function runOcr(uri: string): Promise<string> {
   if (!TextRecognition || typeof TextRecognition.recognize !== 'function') {
     throw new Error('OCR module not available. Run `expo run:ios` to link native dependencies.');
   }
-  const lines: string[] = await TextRecognition.recognize(await resolveToFileUri(uri));
-  return lines.join('\n');
+  const resolved = await resolveToFileUri(uri);
+  try {
+    const lines: string[] = await TextRecognition.recognize(resolved.uri);
+    return lines.join('\n');
+  } finally {
+    if (resolved.copied) safeDelete(resolved.uri);
+  }
 }
 
 function clamp(value: number, min: number, max: number): number {
@@ -120,91 +135,103 @@ export async function scanCard(
   const useRectified = !!corners.rectifiedUri;
   const cropSource = corners.rectifiedUri ?? uri;
 
-  let imgW: number;
-  let imgH: number;
-  if (useRectified) {
-    // Rectified image is always 400×560 by construction
-    imgW = 400;
-    imgH = 560;
-  } else if (imageSize) {
-    imgW = imageSize.width;
-    imgH = imageSize.height;
-  } else {
-    const info = await ImageManipulator.manipulateAsync(uri, []);
-    imgW = info.width;
-    imgH = info.height;
-  }
+  // Track every ImageManipulator output so we can clean up on the way out.
+  // Without this, Android's cache fills with scan_ocr_*.jpg + manipulator
+  // outputs across a heavy session.
+  const tempUris: string[] = [];
 
-  onProgress?.({ step: 'corners_detected', corners, imageW: imgW, imageH: imgH });
-
-  // ── Strategy 1: bottom-left (set/collector number) ──────────────────────────
-
-  let blCropUri: string;
-  if (useRectified) {
-    const c = CROP_BOTTOM_LEFT;
-    blCropUri = await cropRegion(cropSource, c.x, c.y, c.w, c.h);
-  } else {
-    const cardWidthPx = edgePx(corners.bottomLeft, corners.bottomRight, imgW, imgH);
-    const cardHeightPx = edgePx(corners.topLeft, corners.bottomLeft, imgW, imgH);
-    const blOriginX = clamp(Math.floor(corners.bottomLeft.x * imgW), 0, imgW - 1);
-    const blOriginY = clamp(Math.floor(corners.bottomLeft.y * imgH - 0.075 * cardHeightPx), 0, imgH - 1);
-    const blWidth   = clamp(Math.ceil(0.45 * cardWidthPx),  1, imgW - blOriginX);
-    const blHeight  = clamp(Math.ceil(0.075 * cardHeightPx), 1, imgH - blOriginY);
-    blCropUri = await cropRegion(uri, blOriginX, blOriginY, blWidth, blHeight);
-  }
-
-  const blText = await runOcr(blCropUri);
-  onProgress?.({ step: 'bl_ocr_done', blText });
-  const parsed = parseSetAndNumber(blText);
-  onProgress?.({ step: 'bl_parsed', parsed });
-
-  if (parsed) {
-    // DB precheck: a fresh row by (set, number) skips Scryfall entirely.
-    const cachedBySet = getCardBySetNumber(parsed.setCode, parsed.collectorNumber);
-    if (cachedBySet && !isCardStale(cachedBySet)) {
-      cacheCard(cachedBySet); // warm session cache for repeat scans
-      return { strategy: 'set_number', card: cachedBySet, corners, imageW: imgW, imageH: imgH, ocrText: blText, blText };
+  try {
+    let imgW: number;
+    let imgH: number;
+    if (useRectified) {
+      // Rectified image is always 400×560 by construction
+      imgW = 400;
+      imgH = 560;
+    } else if (imageSize) {
+      imgW = imageSize.width;
+      imgH = imageSize.height;
+    } else {
+      const info = await ImageManipulator.manipulateAsync(uri, []);
+      imgW = info.width;
+      imgH = info.height;
+      if (info.uri && info.uri !== uri) tempUris.push(info.uri);
     }
 
-    let fetched: CachedCard | null = null;
-    try {
-      onProgress?.({ step: 'fetching', query: `${parsed.setCode.toUpperCase()} #${parsed.collectorNumber}` });
-      fetched = await fetchCardBySetNumber(parsed.setCode, parsed.collectorNumber);
-    } catch {
-      // Scryfall 404 or network error — fall through to name strategy
+    onProgress?.({ step: 'corners_detected', corners, imageW: imgW, imageH: imgH });
+
+    // ── Strategy 1: bottom-left (set/collector number) ──────────────────────────
+
+    let blCropUri: string;
+    if (useRectified) {
+      const c = CROP_BOTTOM_LEFT;
+      blCropUri = await cropRegion(cropSource, c.x, c.y, c.w, c.h);
+    } else {
+      const cardWidthPx = edgePx(corners.bottomLeft, corners.bottomRight, imgW, imgH);
+      const cardHeightPx = edgePx(corners.topLeft, corners.bottomLeft, imgW, imgH);
+      const blOriginX = clamp(Math.floor(corners.bottomLeft.x * imgW), 0, imgW - 1);
+      const blOriginY = clamp(Math.floor(corners.bottomLeft.y * imgH - 0.075 * cardHeightPx), 0, imgH - 1);
+      const blWidth   = clamp(Math.ceil(0.45 * cardWidthPx),  1, imgW - blOriginX);
+      const blHeight  = clamp(Math.ceil(0.075 * cardHeightPx), 1, imgH - blOriginY);
+      blCropUri = await cropRegion(uri, blOriginX, blOriginY, blWidth, blHeight);
     }
-    if (fetched) {
-      cacheCard(fetched); // single write-through; no second Scryfall hit
-      return { strategy: 'set_number', card: fetched, corners, imageW: imgW, imageH: imgH, ocrText: blText, blText };
+    tempUris.push(blCropUri);
+
+    const blText = await runOcr(blCropUri);
+    onProgress?.({ step: 'bl_ocr_done', blText });
+    const parsed = parseSetAndNumber(blText);
+    onProgress?.({ step: 'bl_parsed', parsed });
+
+    if (parsed) {
+      // DB precheck: a fresh row by (set, number) skips Scryfall entirely.
+      const cachedBySet = getCardBySetNumber(parsed.setCode, parsed.collectorNumber);
+      if (cachedBySet && !isCardStale(cachedBySet)) {
+        cacheCard(cachedBySet); // warm session cache for repeat scans
+        return { strategy: 'set_number', card: cachedBySet, corners, imageW: imgW, imageH: imgH, ocrText: blText, blText };
+      }
+
+      let fetched: CachedCard | null = null;
+      try {
+        onProgress?.({ step: 'fetching', query: `${parsed.setCode.toUpperCase()} #${parsed.collectorNumber}` });
+        fetched = await fetchCardBySetNumber(parsed.setCode, parsed.collectorNumber);
+      } catch {
+        // Scryfall 404 or network error — fall through to name strategy
+      }
+      if (fetched) {
+        cacheCard(fetched); // single write-through; no second Scryfall hit
+        return { strategy: 'set_number', card: fetched, corners, imageW: imgW, imageH: imgH, ocrText: blText, blText };
+      }
     }
+
+    // ── Strategy 2: name crop (top area) ─────────────────────────────────────
+
+    let nameCropUri: string;
+    if (useRectified) {
+      const c = CROP_NAME;
+      nameCropUri = await cropRegion(cropSource, c.x, c.y, c.w, c.h);
+    } else {
+      const cardWidthPx = edgePx(corners.bottomLeft, corners.bottomRight, imgW, imgH);
+      const cardHeightPx = edgePx(corners.topLeft, corners.bottomLeft, imgW, imgH);
+      const tlOriginX = clamp(Math.floor(corners.topLeft.x * imgW), 0, imgW - 1);
+      const tlOriginY = clamp(Math.floor(corners.topLeft.y * imgH), 0, imgH - 1);
+      const tlWidth   = clamp(Math.ceil(0.65 * cardWidthPx),  1, imgW - tlOriginX);
+      const tlHeight  = clamp(Math.ceil(0.12 * cardHeightPx), 1, imgH - tlOriginY);
+      nameCropUri = await cropRegion(uri, tlOriginX, tlOriginY, tlWidth, tlHeight);
+    }
+    tempUris.push(nameCropUri);
+
+    const tlText = await runOcr(nameCropUri);
+    onProgress?.({ step: 'name_ocr_done', nameText: tlText });
+
+    const nameLine = tlText.split('\n').find(l => l.trim().length > 0 && !/^\d+$/.test(l.trim()));
+    if (!nameLine) throw new Error('No text found in name region');
+
+    onProgress?.({ step: 'fetching', query: `name: ${nameLine.trim()}` });
+    const card = await fetchCardByName(nameLine.trim());
+    cacheCard(card);
+    return { strategy: 'name', card, corners, imageW: imgW, imageH: imgH, ocrText: tlText, blText };
+  } finally {
+    for (const t of tempUris) safeDelete(t);
   }
-
-  // ── Strategy 2: name crop (top area) ─────────────────────────────────────
-
-  let nameCropUri: string;
-  if (useRectified) {
-    const c = CROP_NAME;
-    nameCropUri = await cropRegion(cropSource, c.x, c.y, c.w, c.h);
-  } else {
-    const cardWidthPx = edgePx(corners.bottomLeft, corners.bottomRight, imgW, imgH);
-    const cardHeightPx = edgePx(corners.topLeft, corners.bottomLeft, imgW, imgH);
-    const tlOriginX = clamp(Math.floor(corners.topLeft.x * imgW), 0, imgW - 1);
-    const tlOriginY = clamp(Math.floor(corners.topLeft.y * imgH), 0, imgH - 1);
-    const tlWidth   = clamp(Math.ceil(0.65 * cardWidthPx),  1, imgW - tlOriginX);
-    const tlHeight  = clamp(Math.ceil(0.12 * cardHeightPx), 1, imgH - tlOriginY);
-    nameCropUri = await cropRegion(uri, tlOriginX, tlOriginY, tlWidth, tlHeight);
-  }
-
-  const tlText = await runOcr(nameCropUri);
-  onProgress?.({ step: 'name_ocr_done', nameText: tlText });
-
-  const nameLine = tlText.split('\n').find(l => l.trim().length > 0 && !/^\d+$/.test(l.trim()));
-  if (!nameLine) throw new Error('No text found in name region');
-
-  onProgress?.({ step: 'fetching', query: `name: ${nameLine.trim()}` });
-  const card = await fetchCardByName(nameLine.trim());
-  cacheCard(card);
-  return { strategy: 'name', card, corners, imageW: imgW, imageH: imgH, ocrText: tlText, blText };
 }
 
 // ── Public: scanCardByImage ───────────────────────────────────────────────────

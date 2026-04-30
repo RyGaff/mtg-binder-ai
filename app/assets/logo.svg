@@ -1,0 +1,131 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" width="512" height="512">
+  <defs>
+    <linearGradient id="petalDark" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0%" stop-color="#3a2a4a"/>
+      <stop offset="55%" stop-color="#15101c"/>
+      <stop offset="100%" stop-color="#000"/>
+    </linearGradient>
+    <linearGradient id="petalInner" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0%" stop-color="#a06ad0"/>
+      <stop offset="60%" stop-color="#5a2a8a"/>
+      <stop offset="100%" stop-color="#1a0a2a"/>
+    </linearGradient>
+    <linearGradient id="petalAccent" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0%" stop-color="#c890ff"/>
+      <stop offset="100%" stop-color="#5a2a8a"/>
+    </linearGradient>
+    <linearGradient id="stem" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0%" stop-color="#4a6a3a"/>
+      <stop offset="100%" stop-color="#1f3a1f"/>
+    </linearGradient>
+  </defs>
+
+  <!-- background -->
+  <rect width="512" height="512" rx="64" fill="#2a2a2e"/>
+
+  <!-- LF monogram (serif, overlapping). Drawn first so lotuses sit on top. -->
+  <g fill="#f4f1ea" stroke="#1a1a1a" stroke-width="1.5">
+    <!-- L -->
+    <path d="
+      M 110 130
+      L 210 130
+      L 210 145
+      L 195 150
+      L 195 370
+      L 270 370
+      L 280 350
+      L 295 350
+      L 295 400
+      L 110 400
+      L 110 385
+      L 130 380
+      L 130 150
+      L 110 145
+      Z"/>
+    <!-- F -->
+    <path d="
+      M 250 130
+      L 410 130
+      L 410 200
+      L 395 200
+      L 388 175
+      L 320 175
+      L 320 250
+      L 370 250
+      L 378 235
+      L 390 235
+      L 390 290
+      L 378 290
+      L 370 275
+      L 320 275
+      L 320 380
+      L 345 388
+      L 345 400
+      L 250 400
+      L 250 388
+      L 275 380
+      L 275 150
+      L 250 145
+      Z"/>
+  </g>
+
+  <!-- Stem connecting two blooms, weaving through letters -->
+  <path d="M 120 330 C 165 300 215 290 235 250 C 255 215 280 195 330 175"
+        fill="none" stroke="url(#stem)" stroke-width="5" stroke-linecap="round"/>
+
+  <!-- small leaf mid-stem -->
+  <path d="M 230 248 C 255 235 275 245 270 268 C 250 268 235 262 230 248 Z"
+        fill="#3a5a2a" stroke="#1a2a10" stroke-width="1.5"/>
+  <path d="M 200 278 C 180 270 165 282 175 300 C 192 298 202 290 200 278 Z"
+        fill="#3a5a2a" stroke="#1a2a10" stroke-width="1.5"/>
+
+  <!-- Top-right lotus (over F) -->
+  <g transform="translate(355 165)">
+    <!-- back petals -->
+    <g fill="url(#petalDark)" stroke="#1a0a2a" stroke-width="2">
+      <path d="M0 0 C -95 -25 -115 -85 -55 -105 C -25 -75 -10 -40 0 0 Z" transform="rotate(-70)"/>
+      <path d="M0 0 C -95 -25 -115 -85 -55 -105 C -25 -75 -10 -40 0 0 Z" transform="rotate(-30)"/>
+      <path d="M0 0 C -95 -25 -115 -85 -55 -105 C -25 -75 -10 -40 0 0 Z" transform="rotate(30)"/>
+      <path d="M0 0 C -95 -25 -115 -85 -55 -105 C -25 -75 -10 -40 0 0 Z" transform="rotate(70)"/>
+    </g>
+    <!-- mid petals -->
+    <g fill="url(#petalDark)" stroke="#1a0a2a" stroke-width="2">
+      <path d="M0 0 C -55 -25 -70 -90 -30 -110 C -10 -75 -5 -40 0 0 Z" transform="rotate(-35)"/>
+      <path d="M0 0 C 55 -25 70 -90 30 -110 C 10 -75 5 -40 0 0 Z" transform="rotate(35)"/>
+    </g>
+    <!-- front petal with purple inner -->
+    <path d="M0 0 C -38 -35 -42 -110 0 -130 C 42 -110 38 -35 0 0 Z"
+          fill="url(#petalDark)" stroke="#1a0a2a" stroke-width="2"/>
+    <path d="M0 -8 C -22 -38 -24 -100 0 -118 C 24 -100 22 -38 0 -8 Z"
+          fill="url(#petalInner)" opacity="0.85"/>
+    <!-- purple accent strokes -->
+    <g stroke="url(#petalAccent)" stroke-width="2" fill="none" opacity="0.9">
+      <path d="M -30 -30 C -38 -60 -36 -90 -22 -100"/>
+      <path d="M 30 -30 C 38 -60 36 -90 22 -100"/>
+      <path d="M 0 -10 L 0 -100"/>
+    </g>
+  </g>
+
+  <!-- Bottom-left lotus (over L base) -->
+  <g transform="translate(140 340)">
+    <g fill="url(#petalDark)" stroke="#1a0a2a" stroke-width="2">
+      <path d="M0 0 C -90 -25 -110 -80 -55 -100 C -25 -72 -10 -38 0 0 Z" transform="rotate(-65)"/>
+      <path d="M0 0 C -90 -25 -110 -80 -55 -100 C -25 -72 -10 -38 0 0 Z" transform="rotate(-25)"/>
+      <path d="M0 0 C -90 -25 -110 -80 -55 -100 C -25 -72 -10 -38 0 0 Z" transform="rotate(25)"/>
+      <path d="M0 0 C -90 -25 -110 -80 -55 -100 C -25 -72 -10 -38 0 0 Z" transform="rotate(65)"/>
+    </g>
+    <g fill="url(#petalDark)" stroke="#1a0a2a" stroke-width="2">
+      <path d="M0 0 C -50 -25 -65 -85 -28 -105 C -8 -70 -4 -38 0 0 Z" transform="rotate(-32)"/>
+      <path d="M0 0 C 50 -25 65 -85 28 -105 C 8 -70 4 -38 0 0 Z" transform="rotate(32)"/>
+    </g>
+    <path d="M0 0 C -35 -32 -38 -100 0 -118 C 38 -100 35 -32 0 0 Z"
+          fill="url(#petalDark)" stroke="#1a0a2a" stroke-width="2"/>
+    <path d="M0 -6 C -20 -34 -22 -92 0 -108 C 22 -92 20 -34 0 -6 Z"
+          fill="url(#petalInner)" opacity="0.85"/>
+    <g stroke="url(#petalAccent)" stroke-width="2" fill="none" opacity="0.9">
+      <path d="M -27 -28 C -34 -55 -32 -82 -20 -92"/>
+      <path d="M 27 -28 C 34 -55 32 -82 20 -92"/>
+      <path d="M 0 -8 L 0 -92"/>
+    </g>
+  </g>
+</svg>

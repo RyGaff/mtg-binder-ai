@@ -9,11 +9,25 @@ type Props = {
   mainCount: number;
   sideCount: number;
   totalPrice: number;
-  expanded: boolean;
+  statsExpanded: boolean;
+  historyExpanded: boolean;
+  /** Active sort mode label shown next to the Sort toggle (e.g. "Mana"). */
+  sortLabel: string;
+  /** Active sort direction — drives the arrow shown on the Sort toggle. */
+  sortDir: 'asc' | 'desc';
+  /** Whether the Sort panel is currently expanded. Mutually exclusive with
+      Stats and History (parent enforces the exclusion). */
+  sortExpanded: boolean;
   onToggleStats: () => void;
+  onToggleHistory: () => void;
+  onToggleSort: () => void;
 };
 
-function DeckInfoStripImpl({ format, colorIdentity, mainCount, sideCount, totalPrice, expanded, onToggleStats }: Props) {
+function DeckInfoStripImpl({
+  format, colorIdentity, mainCount, sideCount, totalPrice,
+  statsExpanded, historyExpanded, sortLabel, sortDir, sortExpanded,
+  onToggleStats, onToggleHistory, onToggleSort,
+}: Props) {
   const t = useTheme();
   return (
     <View style={[s.wrap, { borderBottomColor: t.border }]}>
@@ -35,11 +49,28 @@ function DeckInfoStripImpl({ format, colorIdentity, mainCount, sideCount, totalP
           <Text style={{ color: t.textSecondary, fontWeight: '500' }}>$</Text>{totalPrice.toFixed(2)}
         </Text>
       ) : null}
-      <Pressable onPress={onToggleStats} hitSlop={8} style={[s.toggle, expanded ? { backgroundColor: t.accent + '33' } : { backgroundColor: t.surfaceAlt }]}>
-        <Text style={[s.toggleText, { color: expanded ? t.accent : t.textSecondary }]}>
-          Stats {expanded ? '▴' : '▾'}
-        </Text>
-      </Pressable>
+      {/* Toggle group pinned to the right edge. All three behave the same
+          way now — they expand/collapse an inline panel below the strip.
+          The parent screen enforces mutual exclusion so only one panel
+          renders at a time. The Sort toggle's label echoes the active mode
+          + direction so the user can read current state without opening it. */}
+      <View style={s.toggleGroup}>
+        <Pressable onPress={onToggleSort} hitSlop={8} style={[s.toggle, sortExpanded ? { backgroundColor: t.accent + '33' } : { backgroundColor: t.surfaceAlt }]}>
+          <Text style={[s.toggleText, { color: sortExpanded ? t.accent : t.textSecondary }]}>
+            Sort: {sortLabel} {sortDir === 'asc' ? '↑' : '↓'} {sortExpanded ? '▴' : '▾'}
+          </Text>
+        </Pressable>
+        <Pressable onPress={onToggleStats} hitSlop={8} style={[s.toggle, statsExpanded ? { backgroundColor: t.accent + '33' } : { backgroundColor: t.surfaceAlt }]}>
+          <Text style={[s.toggleText, { color: statsExpanded ? t.accent : t.textSecondary }]}>
+            Stats {statsExpanded ? '▴' : '▾'}
+          </Text>
+        </Pressable>
+        <Pressable onPress={onToggleHistory} hitSlop={8} style={[s.toggle, historyExpanded ? { backgroundColor: t.accent + '33' } : { backgroundColor: t.surfaceAlt }]}>
+          <Text style={[s.toggleText, { color: historyExpanded ? t.accent : t.textSecondary }]}>
+            History {historyExpanded ? '▴' : '▾'}
+          </Text>
+        </Pressable>
+      </View>
     </View>
   );
 }
@@ -53,6 +84,7 @@ const s = StyleSheet.create({
   glyphs: { flexDirection: 'row', alignItems: 'center', gap: 2 },
   count: { fontSize: 13 },
   price: { fontSize: 13, fontWeight: '700' },
-  toggle: { marginLeft: 'auto', paddingHorizontal: 14, paddingVertical: 8, borderRadius: 999 },
+  toggleGroup: { marginLeft: 'auto', flexDirection: 'row', alignItems: 'center', gap: 6 },
+  toggle: { paddingHorizontal: 14, paddingVertical: 8, borderRadius: 999 },
   toggleText: { fontSize: 12, fontWeight: '600' },
 });

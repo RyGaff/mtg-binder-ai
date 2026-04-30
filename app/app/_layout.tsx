@@ -8,7 +8,7 @@ import { Image } from 'expo-image';
 import { getDb } from '../src/db/db';
 import { checkAndDownload } from '../src/embeddings/downloader';
 import { useStore } from '../src/store/useStore';
-import { useBackgroundMemoryReset } from '../src/utils/memoryHooks';
+import { useBackgroundMemoryReset, usePeriodicPrune } from '../src/utils/memoryHooks';
 
 // SDWebImage's NSCache defaults to unlimited cost. Cap it so a long browse
 // session can't accumulate bitmaps past these limits. iOS-only API.
@@ -41,6 +41,10 @@ const queryClient = new QueryClient({
 function AppInit() {
   const setEmbeddingStatus = useStore((s) => s.setEmbeddingStatus);
   useBackgroundMemoryReset();
+  // Prunes stale SQLite rows on launch + every 30 min while foreground.
+  // Background transition also triggers a prune (in useBackgroundMemoryReset)
+  // so a user who keeps the app open all day still sees regular cleanup.
+  usePeriodicPrune();
   useEffect(() => {
     getDb();
     checkAndDownload(setEmbeddingStatus);

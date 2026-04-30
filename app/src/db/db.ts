@@ -112,6 +112,23 @@ function initSchema(db: SQLite.SQLiteDatabase): void {
       PRIMARY KEY (deck_id, scryfall_id, board)
     );
 
+    -- Deck mutation history. event_type ∈ {'add','remove','decrement','move'}.
+    -- For 'move', board_from + board_to are set; for others board_from is the
+    -- card's board at the time of the event and board_to is null. qty_delta
+    -- captures how many copies the event affected (positive int).
+    CREATE TABLE IF NOT EXISTS deck_history (
+      id          INTEGER PRIMARY KEY AUTOINCREMENT,
+      deck_id     INTEGER NOT NULL REFERENCES decks(id) ON DELETE CASCADE,
+      scryfall_id TEXT NOT NULL,
+      card_name   TEXT NOT NULL DEFAULT '',
+      event_type  TEXT NOT NULL,
+      board_from  TEXT NOT NULL,
+      board_to    TEXT,
+      qty_delta   INTEGER NOT NULL DEFAULT 1,
+      created_at  INTEGER NOT NULL
+    );
+    CREATE INDEX IF NOT EXISTS deck_history_deck_idx ON deck_history (deck_id, created_at DESC);
+
     -- Covers getCardBySetNumber (hot path on import + scan confirmation).
     CREATE INDEX IF NOT EXISTS cards_set_number_idx ON cards (set_code, collector_number);
 
@@ -144,4 +161,8 @@ function initSchema(db: SQLite.SQLiteDatabase): void {
   });
   // Migrate existing decks tables (added after initial release).
   addColumnIfMissing(db, 'decks', 'art_crop_uri', "TEXT NOT NULL DEFAULT ''");
+  // Denormalize card name into deck_history so the read path doesn't need to
+  // join cards. Keeps history rows cheap and lets them survive a cards-cache
+  // eviction of the referenced scryfall_id.
+  addColumnIfMissing(db, 'deck_history', 'card_name', "TEXT NOT NULL DEFAULT ''");
 }

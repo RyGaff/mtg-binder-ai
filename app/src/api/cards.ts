@@ -4,9 +4,9 @@ import { fetchCardById } from './scryfall';
 import { LruCache } from './lruCache';
 
 /** Bounded in-memory cache for card JSON (~2 KB per entry). Capacity-only —
- *  capping at 256 puts the whole cache at ~500 KB max. This is a latency
+ *  capping at 50 puts the whole cache at ~100 KB max. This is a latency
  *  optimization (skip SQLite reads on repeat lookups), not a memory bound. */
-const SESSION_CAPACITY = 256;
+const SESSION_CAPACITY = 50;
 const sessionCache = new LruCache<string, CachedCard>(SESSION_CAPACITY);
 
 /** Write-through helper. Use after a Scryfall fetch to populate both layers

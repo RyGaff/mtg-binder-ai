@@ -42,17 +42,21 @@ function DeckRowImpl({ deck, mode, active, onPress, onLongPress, onMore }: Props
       {banner && (deck.art_crop_uri
         ? <Image source={deck.art_crop_uri} style={s.fill} contentFit="cover" cachePolicy="memory-disk" recyclingKey={deck.art_crop_uri} />
         : <View style={[s.fill, { backgroundColor: accent }]} />)}
-      {banner && <View style={[s.fill, { backgroundColor: t.surface, opacity: 0.55 }]} />}
+      {/* Translucent surface darken layer over the banner art. Bumped from
+          0.55 → 0.7 so meta text reads against bright art. The text below
+          also carries a 1px black shadow as a second-line defense for the
+          rare cases where art is light on the bottom edge. */}
+      {banner && <View style={[s.fill, { backgroundColor: t.surface, opacity: 0.7 }]} />}
       {!banner && <View style={{ width: 3, height: 32, borderRadius: 2, backgroundColor: accent }} />}
 
       <View style={s.body}>
-        <Text style={[s.name, { color: t.text, fontSize: banner ? 15 : 14 }]} numberOfLines={1}>
+        <Text style={[s.name, banner && s.bannerShadow, { color: t.text, fontSize: banner ? 15 : 14 }]} numberOfLines={1}>
           {deck.name}
         </Text>
         <View style={s.meta}>
           {banner && (
             <View style={[s.pill, { backgroundColor: t.surfaceAlt }]}>
-              <Text style={[s.pillText, { color: t.textSecondary }]}>{deck.format}</Text>
+              <Text style={[s.pillText, { color: t.text }]}>{deck.format}</Text>
             </View>
           )}
           {deck.color_identity.map((c) => (
@@ -66,8 +70,17 @@ function DeckRowImpl({ deck, mode, active, onPress, onLongPress, onMore }: Props
             // those fields can be undefined; fall back to 0 to avoid "main undefined".
             const mainN = deck.main_count ?? 0;
             const sideN = deck.side_count ?? 0;
+            // Banner mode: full-contrast text + drop shadow so the count is
+            // readable over any deck art. Compact mode sits on a solid
+            // surface so the dim secondary color is fine there.
             return (
-              <Text style={{ fontSize: 11, color: t.textSecondary }} numberOfLines={1}>
+              <Text
+                style={[
+                  { fontSize: 11, fontWeight: banner ? '600' : '400', color: banner ? t.text : t.textSecondary },
+                  banner && s.bannerShadow,
+                ]}
+                numberOfLines={1}
+              >
                 {banner
                   ? `· main ${mainN} · sideboard ${sideN}`
                   : `${deck.format} · main ${mainN} · sideboard ${sideN} · ${rel(deck.created_at)}`}
@@ -96,4 +109,12 @@ const s = StyleSheet.create({
   pill: { paddingHorizontal: 8, paddingVertical: 2, borderRadius: 999 },
   pillText: { fontSize: 10, fontWeight: '600', textTransform: 'uppercase', letterSpacing: 0.4 },
   more: { paddingHorizontal: 12, alignSelf: 'stretch', justifyContent: 'center' },
+  // Drop shadow applied to all banner-mode text so it stays legible over
+  // bright/busy art crops. Tight 2px blur with high alpha = subtle outline
+  // that doesn't muddy the typography.
+  bannerShadow: {
+    textShadowColor: 'rgba(0,0,0,0.85)',
+    textShadowOffset: { width: 0, height: 1 },
+    textShadowRadius: 2,
+  },
 });
